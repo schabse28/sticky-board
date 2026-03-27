@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx:*)",
+      "Bash(cp -r /tmp/sticky-board-tmp/. /Users/michaelschaberl/sticky-board/ --backup=numbered)",
+      "Bash(rsync -a --exclude='.git' /tmp/sticky-board-tmp/ /Users/michaelschaberl/sticky-board/)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker compose:*)",
+      "Bash(npm run:*)",
+      "Bash(node -e \"require\\(''uuid''\\)\")",
+      "Bash(npm install:*)",
+      "Bash(grep -v \"Use \\\\`node\")",
+      "Bash(openssl rand:*)",
+      "Bash(/Users/michaelschaberl/sticky-board/.env.local:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(ls:*)",
+      "Bash(docker exec:*)",
+      "Bash(mkdir -p \"/Users/michaelschaberl/sticky-board/app/api/boards/[boardId]/notes\")",
+      "Bash(mkdir -p \"/Users/michaelschaberl/sticky-board/app/api/admin/boards/[boardId]\")"
+    ]
+  }
+}

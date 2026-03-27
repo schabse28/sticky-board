@@ -16,7 +16,7 @@ export const authOptions: NextAuthOptions = {
         const user = await verifyUser(credentials.username, credentials.password);
         if (!user) return null;
 
-        return { id: user.id, name: user.username };
+        return { id: user.id, name: user.username, role: user.role };
       },
     }),
   ],
@@ -30,15 +30,19 @@ export const authOptions: NextAuthOptions = {
   },
 
   callbacks: {
-    // userId in den JWT-Token schreiben, damit er in der Session verfügbar ist
+    // userId und role in den JWT-Token schreiben
     jwt({ token, user }) {
-      if (user) token.id = user.id;
+      if (user) {
+        token.id = user.id;
+        token.role = user.role;
+      }
       return token;
     },
     // JWT-Token in das Session-Objekt übertragen (Client & Server)
     session({ session, token }) {
       if (session.user) {
-        (session.user as { id?: string }).id = token.id as string;
+        session.user.id = token.id;
+        session.user.role = token.role;
       }
       return session;
     },

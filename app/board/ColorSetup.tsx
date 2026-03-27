@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 const PALETTE = [
-  { id: "yellow", label: "Gelb",   bg: "#fde047", text: "#713f12" },
+  { id: "yellow", label: "Gelb",   bg: "#fde047", text: "#78350f" },
   { id: "green",  label: "Grün",   bg: "#86efac", text: "#14532d" },
   { id: "pink",   label: "Rosa",   bg: "#f9a8d4", text: "#831843" },
   { id: "blue",   label: "Blau",   bg: "#93c5fd", text: "#1e3a8a" },
@@ -49,19 +49,24 @@ export default function ColorSetup({ username, onColorSelected }: ColorSetupProp
   const selectedPalette = PALETTE.find((c) => c.id === selected);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,23,42,0.6)", backdropFilter: "blur(2px)" }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
-        <div className="text-5xl mb-4">🎨</div>
-        <h2 className="text-xl font-bold text-gray-800 mb-1">
-          Willkommen, {username}!
-        </h2>
-        <p className="text-gray-500 text-sm mb-6 leading-relaxed">
-          Wähle deine persönliche Farbe. Sie wird dauerhaft mit dir verknüpft und
-          kann <strong>nicht</strong> geändert werden.
-        </p>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-8">
+
+        {/* Header */}
+        <div className="mb-6">
+          <h2 className="text-base font-semibold text-gray-900 mb-1">
+            Willkommen, {username}
+          </h2>
+          <p className="text-xs text-gray-400 leading-relaxed">
+            Wähle deine Note-Farbe. Sie ist dauerhaft und kann nicht geändert werden.
+          </p>
+        </div>
 
         {/* Farbkreise */}
-        <div className="flex justify-center gap-4 mb-5">
+        <div className="flex justify-between mb-6">
           {PALETTE.map((c) => {
             const isSelected = selected === c.id;
             return (
@@ -69,14 +74,13 @@ export default function ColorSetup({ username, onColorSelected }: ColorSetupProp
                 key={c.id}
                 onClick={() => setSelected(c.id)}
                 title={c.label}
-                className="w-12 h-12 rounded-full transition-all duration-150 focus:outline-none"
+                className="w-11 h-11 rounded-full transition-all duration-150 focus:outline-none"
                 style={{
                   backgroundColor: c.bg,
-                  border: isSelected ? `3px solid ${c.text}` : "3px solid transparent",
                   boxShadow: isSelected
-                    ? `0 0 0 3px white, 0 0 0 5px ${c.text}`
-                    : "0 2px 6px rgba(0,0,0,0.15)",
-                  transform: isSelected ? "scale(1.18)" : "scale(1)",
+                    ? `0 0 0 2px white, 0 0 0 4px ${c.text}`
+                    : "0 1px 4px rgba(0,0,0,0.12)",
+                  transform: isSelected ? "scale(1.15)" : "scale(1)",
                 }}
               />
             );
@@ -84,10 +88,10 @@ export default function ColorSetup({ username, onColorSelected }: ColorSetupProp
         </div>
 
         {/* Vorschau */}
-        <div className="h-6 mb-4 flex items-center justify-center">
+        <div className="h-5 mb-5 flex items-center">
           {selectedPalette && (
             <span
-              className="text-xs font-semibold px-3 py-1 rounded-full"
+              className="text-[11px] font-medium px-2.5 py-0.5 rounded-full"
               style={{ backgroundColor: selectedPalette.bg, color: selectedPalette.text }}
             >
               {selectedPalette.label} ausgewählt
@@ -96,15 +100,15 @@ export default function ColorSetup({ username, onColorSelected }: ColorSetupProp
         </div>
 
         {error && (
-          <p className="text-sm text-red-600 mb-3">{error}</p>
+          <p className="text-xs text-red-500 mb-4">{error}</p>
         )}
 
         <button
           onClick={handleConfirm}
           disabled={!selected || saving}
-          className="w-full bg-amber-400 hover:bg-amber-500 active:bg-amber-600 disabled:bg-amber-200 disabled:cursor-not-allowed text-amber-900 font-semibold py-2.5 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+          className="w-full bg-slate-900 hover:bg-slate-800 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 rounded-xl transition-colors text-sm"
         >
-          {saving ? "Wird gespeichert…" : "Farbe wählen & loslegen →"}
+          {saving ? "Wird gespeichert…" : "Loslegen →"}
         </button>
       </div>
     </div>

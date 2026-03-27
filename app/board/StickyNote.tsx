@@ -2,14 +2,33 @@
 
 import { useState, useEffect, useRef } from "react";
 
-// Farbpalette: bg = Note-Fläche, header = Griffleiste, border = Rahmen
 const COLORS: Record<string, { bg: string; header: string; border: string; text: string }> = {
-  yellow: { bg: "#fef9c3", header: "#fde047", border: "#facc15", text: "#713f12" },
-  green:  { bg: "#dcfce7", header: "#86efac", border: "#4ade80", text: "#14532d" },
-  pink:   { bg: "#fce7f3", header: "#f9a8d4", border: "#f472b6", text: "#831843" },
-  blue:   { bg: "#dbeafe", header: "#93c5fd", border: "#60a5fa", text: "#1e3a8a" },
-  purple: { bg: "#f3e8ff", header: "#d8b4fe", border: "#c084fc", text: "#581c87" },
+  yellow: { bg: "#fefce8", header: "#fde047", border: "#fbbf24", text: "#78350f" },
+  green:  { bg: "#f0fdf4", header: "#86efac", border: "#4ade80", text: "#14532d" },
+  pink:   { bg: "#fdf2f8", header: "#f9a8d4", border: "#f472b6", text: "#831843" },
+  blue:   { bg: "#eff6ff", header: "#93c5fd", border: "#60a5fa", text: "#1e3a8a" },
+  purple: { bg: "#faf5ff", header: "#d8b4fe", border: "#c084fc", text: "#581c87" },
 };
+
+const NOTE_DEFAULT_W = 208;
+const NOTE_DEFAULT_H = 176;
+
+// ── relatives Zeitformat (Deutsch) ────────────────────────────────────────
+
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  const hrs  = Math.floor(mins / 60);
+  const days = Math.floor(hrs  / 24);
+
+  if (mins < 1)  return "gerade eben";
+  if (mins < 60) return `vor ${mins} Min`;
+  if (hrs  < 24) return hrs === 1 ? "vor 1 Std" : `vor ${hrs} Std`;
+  if (days === 1) return "gestern";
+  return `vor ${days} Tagen`;
+}
+
+// ── Props ─────────────────────────────────────────────────────────────────
 
 export interface StickyNoteProps {
   id: string;
@@ -18,12 +37,21 @@ export interface StickyNoteProps {
   posX: number;
   posY: number;
   zIndex: number;
+  width?: number;
+  height?: number;
+  createdAt: string;
   isEditing: boolean;
+  isDeleting?: boolean;
+  isOwner?: boolean;
+  canDelete?: boolean;
   onDragStart: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
   onDelete: () => void;
   onTextSave: (text: string) => void;
+  onResizeStart?: (e: React.MouseEvent) => void;
 }
+
+// ── Komponente ────────────────────────────────────────────────────────────
 
 export default function StickyNote({
   text,
@@ -31,72 +59,108 @@ export default function StickyNote({
   posX,
   posY,
   zIndex,
+  width = NOTE_DEFAULT_W,
+  height = NOTE_DEFAULT_H,
+  createdAt,
   isEditing,
+  isDeleting = false,
+  isOwner = true,
+  canDelete = isOwner,
   onDragStart,
   onDoubleClick,
   onDelete,
   onTextSave,
+  onResizeStart,
 }: StickyNoteProps) {
   const [localText, setLocalText] = useState(text);
+  const [relTime, setRelTime] = useState(() => formatRelativeTime(createdAt));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const c = COLORS[color] ?? COLORS.yellow;
 
-  // Textarea fokussieren sobald Edit-Modus aktiv wird
+  // Textarea fokussieren wenn Edit-Modus startet
   useEffect(() => {
     if (isEditing) {
       textareaRef.current?.focus();
-      // Cursor ans Ende setzen
       const len = textareaRef.current?.value.length ?? 0;
       textareaRef.current?.setSelectionRange(len, len);
     }
   }, [isEditing]);
 
-  // Text von außen synchronisieren (z.B. nach Server-Antwort), aber nicht
-  // während der Nutzer gerade tippt
+  // Text von außen synchronisieren (nicht während eigener Bearbeitung)
   useEffect(() => {
     if (!isEditing) setLocalText(text);
   }, [text, isEditing]);
 
+  // Timestamp jede Minute aktualisieren
+  useEffect(() => {
+    const id = setInterval(() => setRelTime(formatRelativeTime(createdAt)), 60_000);
+    return () => clearInterval(id);
+  }, [createdAt]);
+
   return (
     <div
-      className="absolute w-52 rounded shadow-lg"
+      className="absolute rounded-xl flex flex-col group transition-opacity duration-150"
       style={{
         left: posX,
         top: posY,
         zIndex,
+        width,
+        height,
         backgroundColor: c.bg,
         border: `1px solid ${c.border}`,
-        minHeight: 180,
-        // Schatten-Stapel für den "echter Klebezettel"-Effekt
-        boxShadow: "2px 3px 8px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.08)",
+        boxShadow: isDeleting
+          ? "none"
+          : "0 1px 3px rgba(0,0,0,0.07), 0 6px 20px rgba(0,0,0,0.07)",
+        opacity: isDeleting ? 0.4 : 1,
+        pointerEvents: isDeleting ? "none" : undefined,
       }}
     >
-      {/* ── Griffleiste (Drag Handle) ── */}
+      {/* ── Drag-Handle ──────────────────────────────────────────────────── */}
       <div
-        className="flex items-center justify-between px-2 py-1 cursor-grab active:cursor-grabbing select-none"
-        style={{ backgroundColor: c.header, borderBottom: `1px solid ${c.border}` }}
+        className="flex-shrink-0 flex items-center justify-between px-3 py-2 cursor-grab active:cursor-grabbing select-none rounded-t-xl"
+        style={{ backgroundColor: c.header }}
         onMouseDown={onDragStart}
       >
-        {/* Drei Punkte als visueller Hinweis auf Verschiebbarkeit */}
-        <div className="flex gap-1">
-          <span className="w-2 h-2 rounded-full bg-white/60" />
-          <span className="w-2 h-2 rounded-full bg-white/60" />
-          <span className="w-2 h-2 rounded-full bg-white/60" />
+        {/* Grip-Punkte 3×2 */}
+        <div className="grid grid-cols-3 gap-[3px] opacity-40">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <span key={i} className="w-[3px] h-[3px] rounded-full" style={{ backgroundColor: c.text }} />
+          ))}
         </div>
 
-        {/* Löschen-Button — stopPropagation verhindert ungewollten Drag-Start */}
-        <button
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={onDelete}
-          title="Note löschen"
-          className="w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold opacity-50 hover:opacity-100 hover:bg-red-400 hover:text-white transition"
-        >
-          ✕
-        </button>
+        {/* Löschen-Button – Ersteller oder Admin */}
+        {canDelete ? (
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onDelete}
+            disabled={isDeleting}
+            title={isDeleting ? "Wird gelöscht…" : "Note löschen"}
+            className="w-5 h-5 flex items-center justify-center rounded-md text-sm leading-none transition-colors"
+            style={{
+              color: (!isOwner) ? "#ef4444" : c.text,
+              opacity: isDeleting ? 0.5 : (!isOwner ? 0.6 : 0.35),
+            }}
+            onMouseEnter={(e) =>
+              !isDeleting && ((e.currentTarget as HTMLButtonElement).style.opacity = "1")
+            }
+            onMouseLeave={(e) => {
+              if (!isDeleting) {
+                (e.currentTarget as HTMLButtonElement).style.opacity = !isOwner ? "0.6" : "0.35";
+              }
+            }}
+          >
+            {isDeleting ? "…" : "×"}
+          </button>
+        ) : (
+          <span className="w-5 h-5" />
+        )}
       </div>
 
-      {/* ── Inhalt ── */}
-      <div className="p-2" onDoubleClick={onDoubleClick}>
+      {/* ── Inhalt ──────────────────────────────────────────────────────── */}
+      <div
+        className="flex-1 relative overflow-hidden"
+        onDoubleClick={isOwner ? onDoubleClick : undefined}
+      >
         {isEditing ? (
           <textarea
             ref={textareaRef}
@@ -104,30 +168,53 @@ export default function StickyNote({
             onChange={(e) => setLocalText(e.target.value)}
             onBlur={() => onTextSave(localText)}
             onKeyDown={(e) => {
-              // Escape speichert ebenfalls
-              if (e.key === "Escape") {
-                e.currentTarget.blur();
-              }
+              if (e.key === "Escape") e.currentTarget.blur();
             }}
-            // Drag auf der Textarea starten verhindert versehentliches Verschieben
             onMouseDown={(e) => e.stopPropagation()}
-            className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed"
-            style={{ color: c.text, minHeight: 130 }}
+            className="absolute inset-0 p-3 resize-none bg-transparent outline-none text-sm leading-relaxed w-full"
+            style={{ color: c.text }}
             placeholder="Text eingeben…"
           />
         ) : (
-          <p
-            className="text-sm leading-relaxed whitespace-pre-wrap break-words cursor-text"
-            style={{ color: c.text, minHeight: 130 }}
-          >
-            {localText || (
-              <span style={{ opacity: 0.35, fontStyle: "italic" }}>
-                Doppelklick zum Bearbeiten
-              </span>
-            )}
-          </p>
+          <div className="absolute inset-0 p-3 overflow-y-auto">
+            <p
+              className="text-sm leading-relaxed whitespace-pre-wrap break-words"
+              style={{
+                color: c.text,
+                cursor: isOwner ? "text" : "default",
+              }}
+            >
+              {localText || (
+                <span style={{ opacity: 0.3, fontStyle: "italic" }}>
+                  {isOwner ? "Doppelklick zum Bearbeiten" : "Nur lesbar"}
+                </span>
+              )}
+            </p>
+          </div>
         )}
+
+        {/* Timestamp – unten rechts im Inhaltsbereich */}
+        <div
+          className="absolute bottom-1.5 right-2.5 text-[10px] leading-none pointer-events-none select-none"
+          style={{ color: c.text, opacity: 0.28 }}
+        >
+          {relTime}
+        </div>
       </div>
+
+      {/* ── Resize-Handle – nur für den Ersteller ───────────────────────── */}
+      {isOwner && onResizeStart && (
+        <div
+          className="absolute bottom-1 right-1 cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity p-1"
+          onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e); }}
+          title="Größe ändern"
+        >
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+            <line x1="1" y1="8" x2="8" y2="1" stroke={c.border} strokeWidth="1.5" strokeLinecap="round" />
+            <line x1="4.5" y1="8" x2="8" y2="4.5" stroke={c.border} strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </div>
+      )}
     </div>
   );
 }

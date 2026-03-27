@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { updateNotePosition, deleteNote, redis, publishBoardEvent } from "@/lib/redis";
+import { updateNotePosition, updateNoteSize, deleteNote, redis, publishBoardEvent } from "@/lib/redis";
 
 // Nur der Ersteller darf seine eigene Note bearbeiten oder löschen
 async function assertOwner(noteId: string, userId: string): Promise<boolean> {
   const noteUserId = await redis.hget(`note:${noteId}`, "userId");
   return noteUserId === userId;
+}
+
+async function getNoteBoard(noteId: string): Promise<string> {
+  return (await redis.hget(`note:${noteId}`, "boardId")) ?? "main";
 }
 
 export async function PATCH(
@@ -19,37 +23,63 @@ export async function PATCH(
   }
 
   const { noteId } = params;
-  if (!(await assertOwner(noteId, session.user.id))) {
-    return NextResponse.json({ error: "Kein Zugriff" }, { status: 403 });
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Ungültige Anfrage" }, { status: 400 });
   }
 
-  const body = await request.json();
+  try {
+    if (!(await assertOwner(noteId, session.user.id))) {
+      return NextResponse.json({ error: "Kein Zugriff" }, { status: 403 });
+    }
 
-  if (body.posX !== undefined && body.posY !== undefined) {
-    const posX = Number(body.posX);
-    const posY = Number(body.posY);
-    await updateNotePosition(noteId, posX, posY);
-    await publishBoardEvent({
-      type: "note:position_updated",
-      noteId,
-      posX,
-      posY,
-      byUserId: session.user.id,
-    });
+    const boardId = await getNoteBoard(noteId);
+
+    if (body.posX !== undefined && body.posY !== undefined) {
+      const posX = Number(body.posX);
+      const posY = Number(body.posY);
+      await updateNotePosition(noteId, posX, posY);
+      await publishBoardEvent(boardId, {
+        type: "note:position_updated",
+        noteId,
+        posX,
+        posY,
+        byUserId: session.user.id,
+      });
+    }
+
+    if (body.text !== undefined) {
+      const text = String(body.text);
+      await redis.hset(`note:${noteId}`, { text });
+      await publishBoardEvent(boardId, {
+        type: "note:text_updated",
+        noteId,
+        text,
+        byUserId: session.user.id,
+      });
+    }
+
+    if (body.width !== undefined && body.height !== undefined) {
+      const width = Math.max(160, Number(body.width));
+      const height = Math.max(120, Number(body.height));
+      await updateNoteSize(noteId, width, height);
+      await publishBoardEvent(boardId, {
+        type: "note:resized",
+        noteId,
+        width,
+        height,
+        byUserId: session.user.id,
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error(`[PATCH /api/notes/${noteId}]`, error);
+    return NextResponse.json({ error: "Note konnte nicht aktualisiert werden" }, { status: 500 });
   }
-
-  if (body.text !== undefined) {
-    const text = String(body.text);
-    await redis.hset(`note:${noteId}`, { text });
-    await publishBoardEvent({
-      type: "note:text_updated",
-      noteId,
-      text,
-      byUserId: session.user.id,
-    });
-  }
-
-  return NextResponse.json({ success: true });
 }
 
 export async function DELETE(
@@ -62,16 +92,22 @@ export async function DELETE(
   }
 
   const { noteId } = params;
-  if (!(await assertOwner(noteId, session.user.id))) {
-    return NextResponse.json({ error: "Kein Zugriff" }, { status: 403 });
+
+  try {
+    if (!(await assertOwner(noteId, session.user.id))) {
+      return NextResponse.json({ error: "Kein Zugriff" }, { status: 403 });
+    }
+
+    const boardId = await deleteNote(noteId);
+    await publishBoardEvent(boardId ?? "main", {
+      type: "note:deleted",
+      noteId,
+      byUserId: session.user.id,
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error(`[DELETE /api/notes/${noteId}]`, error);
+    return NextResponse.json({ error: "Note konnte nicht gelöscht werden" }, { status: 500 });
   }
-
-  await deleteNote(noteId);
-  await publishBoardEvent({
-    type: "note:deleted",
-    noteId,
-    byUserId: session.user.id,
-  });
-
-  return NextResponse.json({ success: true });
 }

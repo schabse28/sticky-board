@@ -1,29 +1,43 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { createNote, getNotesByBoard, getUserColor, publishBoardEvent } from "@/lib/redis";
+import { createNote, getNotesByBoard, getBoard, getUserColor, publishBoardEvent } from "@/lib/redis";
 
-const BOARD_ID = "main";
-
-export async function GET() {
+export async function GET(
+  _request: Request,
+  { params }: { params: { boardId: string } }
+) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
     return NextResponse.json({ error: "Nicht authentifiziert" }, { status: 401 });
   }
 
+  const { boardId } = params;
+
   try {
-    const notes = await getNotesByBoard(BOARD_ID);
+    const notes = await getNotesByBoard(boardId);
     return NextResponse.json(notes);
   } catch (error) {
-    console.error("[GET /api/notes]", error);
+    console.error(`[GET /api/boards/${boardId}/notes]`, error);
     return NextResponse.json({ error: "Notes konnten nicht geladen werden" }, { status: 500 });
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(
+  request: Request,
+  { params }: { params: { boardId: string } }
+) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
     return NextResponse.json({ error: "Nicht authentifiziert" }, { status: 401 });
+  }
+
+  const { boardId } = params;
+
+  // Board muss existieren
+  const board = await getBoard(boardId);
+  if (!board) {
+    return NextResponse.json({ error: "Board nicht gefunden" }, { status: 404 });
   }
 
   let body: { text?: string; posX?: number; posY?: number };
@@ -34,7 +48,6 @@ export async function POST(request: Request) {
   }
 
   const { text, posX, posY } = body;
-
   if (posX === undefined || posY === undefined) {
     return NextResponse.json({ error: "posX und posY sind erforderlich" }, { status: 400 });
   }
@@ -43,7 +56,7 @@ export async function POST(request: Request) {
     // Farbe kommt immer aus der festgelegten Nutzerfarbe, nie aus dem Request
     const userColor = (await getUserColor(session.user.id)) ?? "yellow";
 
-    const note = await createNote(BOARD_ID, {
+    const note = await createNote(boardId, {
       text: text ?? "",
       color: userColor,
       posX: Number(posX),
@@ -51,11 +64,11 @@ export async function POST(request: Request) {
       userId: session.user.id,
     });
 
-    await publishBoardEvent(BOARD_ID, { type: "note:created", note });
+    await publishBoardEvent(boardId, { type: "note:created", note });
 
     return NextResponse.json(note, { status: 201 });
   } catch (error) {
-    console.error("[POST /api/notes]", error);
+    console.error(`[POST /api/boards/${boardId}/notes]`, error);
     return NextResponse.json({ error: "Note konnte nicht erstellt werden" }, { status: 500 });
   }
 }

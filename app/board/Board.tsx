@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { Note, BoardEvent, OnlineUser } from "@/lib/redis";
+import Link from "next/link";
+import type { Note, BoardEvent, OnlineUser } from "@/types";
 import StickyNote from "./StickyNote";
 import SignOutButton from "./SignOutButton";
 import ColorSetup from "./ColorSetup";
 
-// Farbwerte für User-Avatare (gleiche Namen wie in StickyNote.tsx / ColorSetup.tsx)
 const SWATCH: Record<string, { bg: string; text: string }> = {
   yellow: { bg: "#fde047", text: "#713f12" },
   green:  { bg: "#86efac", text: "#14532d" },
@@ -14,6 +14,12 @@ const SWATCH: Record<string, { bg: string; text: string }> = {
   blue:   { bg: "#93c5fd", text: "#1e3a8a" },
   purple: { bg: "#d8b4fe", text: "#581c87" },
 };
+
+// Standardmaße einer neuen Note
+const NOTE_DEFAULT_W = 208;
+const NOTE_DEFAULT_H = 176;
+const NOTE_MIN_W = 160;
+const NOTE_MIN_H = 120;
 
 // ── Typen ──────────────────────────────────────────────────────────────────
 
@@ -27,12 +33,22 @@ interface DragState {
   startNoteY: number;
 }
 
+interface ResizeState {
+  noteId: string;
+  startMouseX: number;
+  startMouseY: number;
+  startWidth: number;
+  startHeight: number;
+}
+
 interface BoardProps {
   initialNotes: Note[];
   boardId: string;
+  boardName: string;
   username: string;
   userId: string;
   initialUserColor: string | null;
+  isAdmin: boolean;
 }
 
 // ── Komponente ─────────────────────────────────────────────────────────────
@@ -40,9 +56,11 @@ interface BoardProps {
 export default function Board({
   initialNotes,
   boardId,
+  boardName,
   username,
   userId,
   initialUserColor,
+  isAdmin,
 }: BoardProps) {
   const [notes, setNotes] = useState<BoardNote[]>(() =>
     initialNotes.map((n, i) => ({ ...n, zIndex: i + 1 }))
@@ -50,23 +68,23 @@ export default function Board({
   const [currentUserColor, setCurrentUserColor] = useState<string | null>(initialUserColor);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
-  // Refs für Mouse- und SSE-Handler (kein Stale-Closure-Problem)
   const dragRef = useRef<DragState | null>(null);
+  const resizeRef = useRef<ResizeState | null>(null);
   const notesRef = useRef<BoardNote[]>(notes);
   const editingIdRef = useRef<string | null>(null);
 
   useEffect(() => { notesRef.current = notes; }, [notes]);
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
 
-  // ── SSE – Echtzeit-Synchronisierung ──────────────────────────────────────
-  // Startet erst wenn der Nutzer seine Farbe gewählt hat, damit der Server
-  // die korrekte Presence-Information broadcasten kann.
+  // ── SSE ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!currentUserColor) return;
 
-    const es = new EventSource("/api/events");
+    const es = new EventSource(`/api/events?boardId=${boardId}`);
 
     es.onmessage = (e: MessageEvent) => {
       let event: BoardEvent;
@@ -79,7 +97,6 @@ export default function Board({
       switch (event.type) {
         case "note:created":
           setNotes((prev) => {
-            // Deduplizieren: Note wurde von uns optimistisch hinzugefügt
             if (prev.some((n) => n.id === event.note.id)) return prev;
             const maxZ = Math.max(...prev.map((n) => n.zIndex), 0);
             return [...prev, { ...event.note, zIndex: maxZ + 1 }];
@@ -87,7 +104,6 @@ export default function Board({
           break;
 
         case "note:position_updated":
-          // Nicht überschreiben während wir diese Note selbst ziehen
           if (dragRef.current?.noteId === event.noteId) return;
           setNotes((prev) =>
             prev.map((n) =>
@@ -97,11 +113,22 @@ export default function Board({
           break;
 
         case "note:text_updated":
-          // Nicht überschreiben während wir den Text selbst bearbeiten
           if (editingIdRef.current === event.noteId) return;
           setNotes((prev) =>
             prev.map((n) =>
               n.id === event.noteId ? { ...n, text: event.text } : n
+            )
+          );
+          break;
+
+        case "note:resized":
+          // Nicht überschreiben während wir diese Note selbst resizen
+          if (resizeRef.current?.noteId === event.noteId) return;
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.id === event.noteId
+                ? { ...n, width: event.width, height: event.height }
+                : n
             )
           );
           break;
@@ -117,44 +144,81 @@ export default function Board({
       }
     };
 
-    // EventSource reconnectet automatisch bei Verbindungsabbruch
     es.onerror = () => {};
 
     return () => es.close();
-  }, [currentUserColor]); // startet/restartet wenn Farbe gesetzt wird
+  }, [currentUserColor, boardId]);
 
-  // ── Drag & Drop ───────────────────────────────────────────────────────────
+  // ── Drag & Drop + Resize ─────────────────────────────────────────────────
+  // Beide Interaktionen laufen über globale Mouse-Events, damit das Ziehen
+  // außerhalb der Note-Fläche weiterhin funktioniert.
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
+      // Drag-Logik
       const d = dragRef.current;
-      if (!d) return;
-      const dx = e.clientX - d.startMouseX;
-      const dy = e.clientY - d.startMouseY;
-      setNotes((prev) =>
-        prev.map((n) =>
-          n.id === d.noteId
-            ? { ...n, posX: d.startNoteX + dx, posY: d.startNoteY + dy }
-            : n
-        )
-      );
+      if (d) {
+        const dx = e.clientX - d.startMouseX;
+        const dy = e.clientY - d.startMouseY;
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === d.noteId
+              ? { ...n, posX: d.startNoteX + dx, posY: d.startNoteY + dy }
+              : n
+          )
+        );
+        return;
+      }
+
+      // Resize-Logik
+      const r = resizeRef.current;
+      if (r) {
+        const dx = e.clientX - r.startMouseX;
+        const dy = e.clientY - r.startMouseY;
+        const newWidth = Math.max(NOTE_MIN_W, r.startWidth + dx);
+        const newHeight = Math.max(NOTE_MIN_H, r.startHeight + dy);
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === r.noteId ? { ...n, width: newWidth, height: newHeight } : n
+          )
+        );
+      }
     };
 
     const onMouseUp = () => {
+      // Drag beenden und Position speichern
       const d = dragRef.current;
-      if (!d) return;
-      dragRef.current = null;
+      if (d) {
+        dragRef.current = null;
+        const note = notesRef.current.find((n) => n.id === d.noteId);
+        if (note) {
+          fetch(`/api/notes/${note.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              posX: Math.round(note.posX),
+              posY: Math.round(note.posY),
+            }),
+          });
+        }
+        return;
+      }
 
-      const note = notesRef.current.find((n) => n.id === d.noteId);
-      if (note) {
-        fetch(`/api/notes/${note.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            posX: Math.round(note.posX),
-            posY: Math.round(note.posY),
-          }),
-        });
+      // Resize beenden und Größe speichern
+      const r = resizeRef.current;
+      if (r) {
+        resizeRef.current = null;
+        const note = notesRef.current.find((n) => n.id === r.noteId);
+        if (note) {
+          fetch(`/api/notes/${note.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              width: Math.round(note.width ?? NOTE_DEFAULT_W),
+              height: Math.round(note.height ?? NOTE_DEFAULT_H),
+            }),
+          });
+        }
       }
     };
 
@@ -181,37 +245,84 @@ export default function Board({
     };
   }, []);
 
+  const handleResizeStart = useCallback((e: React.MouseEvent, note: BoardNote) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = {
+      noteId: note.id,
+      startMouseX: e.clientX,
+      startMouseY: e.clientY,
+      startWidth: note.width ?? NOTE_DEFAULT_W,
+      startHeight: note.height ?? NOTE_DEFAULT_H,
+    };
+  }, []);
+
   // ── CRUD ──────────────────────────────────────────────────────────────────
 
-  const handleCreate = useCallback(async () => {
-    if (!currentUserColor) return;
+  // posXOverride/posYOverride: gesetzt beim Doppelklick auf den Hintergrund,
+  // sonst zufällige Position auf dem Board.
+  const handleCreate = useCallback(async (posXOverride?: number, posYOverride?: number) => {
+    if (!currentUserColor || isCreating) return;
+    setIsCreating(true);
 
-    const canvas = document.getElementById("board-canvas");
-    const rect = canvas?.getBoundingClientRect();
-    const posX = Math.floor(Math.random() * Math.max((rect?.width ?? 800) - 230, 100)) + 40;
-    const posY = Math.floor(Math.random() * Math.max((rect?.height ?? 600) - 220, 100)) + 40;
+    try {
+      let posX: number;
+      let posY: number;
 
-    const res = await fetch("/api/notes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ boardId, text: "", posX, posY }),
-      // Farbe wird serverseitig aus Redis gelesen – nie vom Client
-    });
+      if (posXOverride !== undefined && posYOverride !== undefined) {
+        posX = posXOverride;
+        posY = posYOverride;
+      } else {
+        const canvas = document.getElementById("board-canvas");
+        const rect = canvas?.getBoundingClientRect();
+        posX = Math.floor(Math.random() * Math.max((rect?.width ?? 800) - 230, 100)) + 40;
+        posY = Math.floor(Math.random() * Math.max((rect?.height ?? 600) - 220, 100)) + 40;
+      }
 
-    if (!res.ok) return;
+      const res = await fetch(`/api/boards/${boardId}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "", posX, posY }),
+      });
 
-    const note: Note = await res.json();
-    const maxZ = Math.max(...notesRef.current.map((n) => n.zIndex), 0);
-    // Optimistisch hinzufügen; SSE-Echo wird dedupliziert
-    setNotes((prev) => [...prev, { ...note, zIndex: maxZ + 1 }]);
-    setEditingId(note.id);
-  }, [boardId, currentUserColor]);
+      if (!res.ok) return;
 
-  const handleDelete = useCallback(async (noteId: string) => {
-    setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      const note: Note = await res.json();
+      const maxZ = Math.max(...notesRef.current.map((n) => n.zIndex), 0);
+      setNotes((prev) => [...prev, { ...note, zIndex: maxZ + 1 }]);
+      setEditingId(note.id);
+    } catch (error) {
+      console.error("Fehler beim Erstellen der Note:", error);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [boardId, currentUserColor, isCreating]);
+
+  const handleDelete = useCallback(async (noteId: string, noteOwnerId: string) => {
     if (editingIdRef.current === noteId) setEditingId(null);
-    await fetch(`/api/notes/${noteId}`, { method: "DELETE" });
-  }, []);
+    setDeletingIds((prev) => new Set(prev).add(noteId));
+
+    try {
+      // Admins nutzen die Admin-Route um fremde Notes zu löschen
+      const isOwner = noteOwnerId === userId;
+      const url = (!isOwner && isAdmin)
+        ? `/api/admin/notes/${noteId}`
+        : `/api/notes/${noteId}`;
+
+      const res = await fetch(url, { method: "DELETE" });
+      if (res.ok) {
+        setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      }
+    } catch (error) {
+      console.error("Fehler beim Löschen der Note:", error);
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(noteId);
+        return next;
+      });
+    }
+  }, [isAdmin, userId]);
 
   const handleTextSave = useCallback(async (noteId: string, text: string) => {
     setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, text } : n)));
@@ -228,9 +339,9 @@ export default function Board({
   const myColor = currentUserColor ? SWATCH[currentUserColor] : null;
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden" style={{ background: "#f1f5f9" }}>
+    <div className="flex flex-col h-screen overflow-hidden">
 
-      {/* Farb-Setup-Overlay für neue Nutzer (blockiert das Board) */}
+      {/* Farb-Setup-Overlay */}
       {!currentUserColor && (
         <ColorSetup
           username={username}
@@ -238,75 +349,102 @@ export default function Board({
         />
       )}
 
-      {/* ── Kopfzeile ──────────────────────────────────────────────────── */}
-      <header className="flex-shrink-0 bg-white border-b border-slate-200 shadow-sm">
-        <div className="px-5 py-2.5 flex items-center gap-3">
+      {/* ── Toolbar ────────────────────────────────────────────────────── */}
+      <header className="flex-shrink-0 h-11 bg-slate-900 flex items-center px-4 gap-4 border-b border-slate-800">
 
-          {/* Logo */}
-          <div className="flex items-center gap-2 mr-3">
-            <span className="text-xl">📌</span>
-            <span className="font-bold text-amber-800 text-base">Sticky Board</span>
-          </div>
-
-          {/* Note hinzufügen */}
-          <button
-            onClick={handleCreate}
-            disabled={!currentUserColor}
-            className="flex items-center gap-1.5 bg-amber-400 hover:bg-amber-500 active:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-amber-900 font-semibold text-sm px-4 py-2 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1"
+        {/* Logo + Breadcrumb – links */}
+        <div className="flex items-center gap-2 min-w-0">
+          <Link
+            href="/boards"
+            className="flex items-center gap-2 group"
+            title="Alle Boards"
           >
-            <span className="text-base font-bold leading-none">+</span>
-            Note hinzufügen
-          </button>
+            <div className="w-6 h-6 rounded-md bg-white/10 group-hover:bg-white/20 flex items-center justify-center flex-shrink-0 transition-colors">
+              <span className="text-white text-[10px] font-bold tracking-tight">SB</span>
+            </div>
+          </Link>
+          <span className="text-slate-600 text-sm">/</span>
+          <span className="text-white font-semibold text-sm tracking-tight truncate max-w-[180px]">
+            {boardName}
+          </span>
+        </div>
 
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Online-Nutzer */}
+        {/* Online-Nutzer – Mitte */}
+        <div className="flex-1 flex items-center justify-center">
           {onlineUsers.length > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-slate-400 font-medium mr-1">Online</span>
-              {/* Grüner Punkt als Indikator */}
-              <span className="w-2 h-2 rounded-full bg-green-400 mr-1" />
-              {onlineUsers.slice(0, 10).map((user) => {
-                const c = SWATCH[user.color] ?? SWATCH.yellow;
-                const isMe = user.id === userId;
-                return (
-                  <div
-                    key={user.id}
-                    title={`${user.name}${isMe ? " (du)" : ""}`}
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shadow-sm cursor-default select-none transition-transform hover:scale-110"
-                    style={{
-                      backgroundColor: c.bg,
-                      color: c.text,
-                      border: isMe ? `2.5px solid ${c.text}` : "2px solid rgba(255,255,255,0.6)",
-                      boxShadow: isMe ? `0 0 0 1px ${c.bg}` : undefined,
-                    }}
-                  >
-                    {user.name.slice(0, 1).toUpperCase()}
-                  </div>
-                );
-              })}
-              {onlineUsers.length > 10 && (
-                <span className="text-xs text-slate-400 ml-0.5">
-                  +{onlineUsers.length - 10}
-                </span>
-              )}
-              <div className="w-px h-5 bg-slate-200 mx-2" />
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+              <div className="flex items-center gap-1">
+                {onlineUsers.slice(0, 8).map((user) => {
+                  const c = SWATCH[user.color] ?? SWATCH.yellow;
+                  const isMe = user.id === userId;
+                  return (
+                    <div
+                      key={user.id}
+                      title={`${user.name}${isMe ? " (du)" : ""}`}
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold select-none cursor-default flex-shrink-0"
+                      style={{
+                        backgroundColor: c.bg,
+                        color: c.text,
+                        boxShadow: isMe
+                          ? `0 0 0 1.5px #0f172a, 0 0 0 3px ${c.bg}`
+                          : "0 0 0 1px rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      {user.name.slice(0, 1).toUpperCase()}
+                    </div>
+                  );
+                })}
+                {onlineUsers.length > 8 && (
+                  <span className="text-[11px] text-slate-500 ml-0.5">
+                    +{onlineUsers.length - 8}
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] text-slate-500 tabular-nums whitespace-nowrap">
+                {onlineUsers.length} online
+              </span>
             </div>
           )}
+        </div>
 
-          {/* Eigener Avatar + Username */}
-          <div className="flex items-center gap-2">
-            {myColor && (
-              <div
-                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
-                style={{ backgroundColor: myColor.bg, color: myColor.text }}
-              >
-                {username.slice(0, 1).toUpperCase()}
-              </div>
+        {/* Aktionen – rechts */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {isAdmin && (
+            <Link
+              href="/admin"
+              className="text-xs text-slate-400 hover:text-white transition-colors px-2 py-1.5 rounded-lg hover:bg-white/10"
+            >
+              Admin
+            </Link>
+          )}
+
+          <button
+            onClick={() => handleCreate()}
+            disabled={!currentUserColor || isCreating}
+            className="flex items-center gap-1.5 bg-white hover:bg-gray-100 active:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed text-slate-900 font-medium text-xs px-3 py-1.5 rounded-lg transition-colors"
+          >
+            {isCreating ? (
+              <span className="animate-spin inline-block leading-none text-sm">⟳</span>
+            ) : (
+              <span className="text-base leading-none font-semibold">+</span>
             )}
-            <span className="text-sm font-semibold text-slate-700">{username}</span>
-          </div>
+            <span>{isCreating ? "Erstellt…" : "Neue Note"}</span>
+          </button>
+
+          {myColor && (
+            <div
+              title={username}
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold cursor-default select-none"
+              style={{
+                backgroundColor: myColor.bg,
+                color: myColor.text,
+                boxShadow: "0 0 0 1.5px #0f172a, 0 0 0 3px " + myColor.bg,
+              }}
+            >
+              {username.slice(0, 1).toUpperCase()}
+            </div>
+          )}
 
           <SignOutButton />
         </div>
@@ -318,34 +456,56 @@ export default function Board({
         className="flex-1 relative overflow-hidden"
         style={{
           backgroundColor: "#ffffff",
-          backgroundImage: "radial-gradient(circle, #cbd5e1 1.2px, transparent 1.2px)",
-          backgroundSize: "28px 28px",
+          backgroundImage: "radial-gradient(circle, #d1d5db 1px, transparent 1px)",
+          backgroundSize: "24px 24px",
+        }}
+        onDoubleClick={(e) => {
+          // Nur Doppelklick direkt auf den Hintergrund (nicht auf eine Note)
+          if (e.target !== e.currentTarget) return;
+          if (!currentUserColor || isCreating) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          // Note mittig unter dem Cursor platzieren, Header auf Klickhöhe
+          const posX = Math.max(8, Math.round(e.clientX - rect.left - NOTE_DEFAULT_W / 2));
+          const posY = Math.max(8, Math.round(e.clientY - rect.top - 14));
+          handleCreate(posX, posY);
         }}
       >
-        {notes.map((note) => (
-          <StickyNote
-            key={note.id}
-            id={note.id}
-            text={note.text}
-            color={note.color}
-            posX={note.posX}
-            posY={note.posY}
-            zIndex={note.zIndex}
-            isEditing={editingId === note.id}
-            onDragStart={(e) => handleDragStart(e, note)}
-            onDoubleClick={() => setEditingId(note.id)}
-            onDelete={() => handleDelete(note.id)}
-            onTextSave={(text) => handleTextSave(note.id, text)}
-          />
-        ))}
+        {notes.map((note) => {
+          const isOwner = note.userId === userId;
+          const canDelete = isOwner || isAdmin;
+          return (
+            <StickyNote
+              key={note.id}
+              id={note.id}
+              text={note.text}
+              color={note.color}
+              posX={note.posX}
+              posY={note.posY}
+              zIndex={note.zIndex}
+              width={note.width}
+              height={note.height}
+              createdAt={note.createdAt}
+              isEditing={editingId === note.id}
+              isDeleting={deletingIds.has(note.id)}
+              isOwner={isOwner}
+              canDelete={canDelete}
+              onDragStart={(e) => handleDragStart(e, note)}
+              onDoubleClick={() => {
+                if (isOwner) setEditingId(note.id);
+              }}
+              onDelete={() => handleDelete(note.id, note.userId)}
+              onTextSave={(text) => handleTextSave(note.id, text)}
+              onResizeStart={isOwner ? (e) => handleResizeStart(e, note) : undefined}
+            />
+          );
+        })}
 
         {notes.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
-            <div className="text-center" style={{ color: "#94a3b8" }}>
-              <div className="text-7xl mb-5">🗒️</div>
-              <p className="text-xl font-semibold">Das Board ist leer</p>
-              <p className="text-sm mt-2 opacity-75">
-                Klicke auf „+ Note hinzufügen" um loszulegen
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-400">Das Board ist leer</p>
+              <p className="text-xs text-gray-300 mt-1">
+                Klicke auf &bdquo;+ Neue Note&ldquo; oder doppelklicke auf das Board
               </p>
             </div>
           </div>

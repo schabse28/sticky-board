@@ -5,12 +5,15 @@
  * ioredis sperrt eine Connection nach dem ersten SUBSCRIBE-Aufruf – deshalb
  * kann die globale Singleton-Connection nicht verwendet werden.
  *
+ * Kanalarchitektur:
+ *   board:{boardId}:events  → boardspezifische Note-Events
+ *   presence:events          → globale Präsenz-Updates (alle Boards)
+ *
  * Ablauf:
- *   1. Client öffnet GET /api/events (Browser-EventSource)
- *   2. Nutzer wird als "online" markiert → Presence-Update an alle
- *   3. Dedizierter Redis-Subscriber hört auf "board:main:events"
- *   4. Jede publizierte Nachricht wird als SSE-Frame an den Client gestreamt
- *   5. Bei Verbindungstrennung: Subscriber schließen, Nutzer offline setzen
+ *   1. Client öffnet GET /api/events?boardId=... (Browser-EventSource)
+ *   2. Beide Kanäle abonnieren, dann Nutzer online setzen
+ *   3. Jede publizierte Nachricht wird als SSE-Frame an den Client gestreamt
+ *   4. Bei Verbindungstrennung: offline setzen, Board-Präsenz bereinigen
  */
 
 import Redis from "ioredis";
@@ -21,18 +24,31 @@ import {
   setUserOnline,
   setUserOffline,
   getOnlineUsers,
-  publishBoardEvent,
-  BOARD_CHANNEL,
+  publishPresenceEvent,
+  boardChannel,
+  PRESENCE_CHANNEL,
+  setBoardUserOnline,
+  setBoardUserOffline,
 } from "@/lib/redis";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const session = await getServerSession(authOptions);
+  let session;
+  try {
+    session = await getServerSession(authOptions);
+  } catch (error) {
+    console.error("[GET /api/events] Session-Fehler:", error);
+    return new Response("Interner Serverfehler", { status: 500 });
+  }
+
   if (!session?.user) {
     return new Response("Nicht authentifiziert", { status: 401 });
   }
+
+  const { searchParams } = new URL(request.url);
+  const boardId = searchParams.get("boardId") ?? "main";
 
   const userId = session.user.id;
   const userName = session.user.name ?? "Unbekannt";
@@ -60,15 +76,18 @@ export async function GET(request: Request) {
         console.error("[SSE Subscriber]", err.message);
       });
 
-      // Nutzer online setzen und Presence an alle senden
+      // Zuerst abonnieren – nur so empfängt dieser Client sein eigenes Presence-Event.
+      // boardChannel: note-spezifische Events dieses Boards
+      // PRESENCE_CHANNEL: globale Online-Nutzer-Updates (board-übergreifend)
+      await subscriber.subscribe(boardChannel(boardId), PRESENCE_CHANNEL);
+      subscriber.on("message", (_ch, msg) => send(msg));
+
+      // Nutzer global + boardspezifisch online setzen, dann Presence broadcasten
       const userColor = (await getUserColor(userId)) ?? "yellow";
       await setUserOnline(userId, userName, userColor);
+      await setBoardUserOnline(boardId, userId);
       const users = await getOnlineUsers();
-      await publishBoardEvent({ type: "presence:update", users });
-
-      // Board-Kanal abonnieren
-      await subscriber.subscribe(BOARD_CHANNEL);
-      subscriber.on("message", (_ch, msg) => send(msg));
+      await publishPresenceEvent(users);
 
       // Keep-Alive: Proxies und Browser trennen bei ~30s Inaktivität
       heartbeat = setInterval(() => {
@@ -84,14 +103,15 @@ export async function GET(request: Request) {
         if (heartbeat) clearInterval(heartbeat);
 
         try {
-          await subscriber?.unsubscribe(BOARD_CHANNEL);
+          await subscriber?.unsubscribe();
           await subscriber?.quit();
         } catch {}
 
         try {
           await setUserOffline(userId);
+          await setBoardUserOffline(boardId, userId);
           const updated = await getOnlineUsers();
-          await publishBoardEvent({ type: "presence:update", users: updated });
+          await publishPresenceEvent(updated);
         } catch {}
 
         try {
@@ -106,7 +126,6 @@ export async function GET(request: Request) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
-      // Nginx/Caddy-Puffer deaktivieren, damit Events sofort ankommen
       "X-Accel-Buffering": "no",
     },
   });
