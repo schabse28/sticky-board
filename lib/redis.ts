@@ -318,3 +318,70 @@ export async function verifyUser(username: string, password: string): Promise<Us
   const isValid = await bcrypt.compare(password, user.passwordHash);
   return isValid ? user : null;
 }
+
+// ---------------------------------------------------------------------------
+// Nutzerfarbe
+// ---------------------------------------------------------------------------
+// Jeder Nutzer wählt seine Farbe einmalig. Sie wird als einfacher String-Key
+// gespeichert – kein Schema, kein ALTER TABLE. Redis macht das in O(1).
+
+export async function getUserColor(userId: string): Promise<string | null> {
+  return redis.get(`user:${userId}:color`);
+}
+
+export async function setUserColor(userId: string, color: string): Promise<void> {
+  await redis.set(`user:${userId}:color`, color);
+}
+
+// ---------------------------------------------------------------------------
+// Online-Präsenz
+// ---------------------------------------------------------------------------
+// Redis Hash "online:users": userId → JSON({name, color})
+// Einfacher als ein separater Presence-Service; für lokale Nutzung ausreichend.
+
+export interface OnlineUser {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export async function setUserOnline(
+  userId: string,
+  name: string,
+  color: string
+): Promise<void> {
+  await redis.hset("online:users", userId, JSON.stringify({ name, color }));
+}
+
+export async function setUserOffline(userId: string): Promise<void> {
+  await redis.hdel("online:users", userId);
+}
+
+export async function getOnlineUsers(): Promise<OnlineUser[]> {
+  const data = await redis.hgetall("online:users");
+  if (!data) return [];
+  return Object.entries(data).map(([id, json]) => {
+    const { name, color } = JSON.parse(json) as { name: string; color: string };
+    return { id, name, color };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Pub/Sub für Echtzeit-Synchronisierung
+// ---------------------------------------------------------------------------
+// Redis Pub/Sub ist der einfachste Weg, Nachrichten zwischen Server-Prozessen
+// (SSE-Handler) zu verteilen. Kein Polling, keine Websocket-Bibliothek nötig.
+
+export type BoardEvent =
+  | { type: "note:created"; note: Note }
+  | { type: "note:position_updated"; noteId: string; posX: number; posY: number; byUserId: string }
+  | { type: "note:text_updated"; noteId: string; text: string; byUserId: string }
+  | { type: "note:deleted"; noteId: string; byUserId: string }
+  | { type: "presence:update"; users: OnlineUser[] };
+
+export const BOARD_CHANNEL = "board:main:events";
+
+/** Sendet ein Ereignis an alle SSE-Clients, die den Board-Kanal abonniert haben. */
+export async function publishBoardEvent(event: BoardEvent): Promise<void> {
+  await redis.publish(BOARD_CHANNEL, JSON.stringify(event));
+}
