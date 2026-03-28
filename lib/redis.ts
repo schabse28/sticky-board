@@ -158,10 +158,15 @@ export async function createNote(boardId: string, noteData: NoteData): Promise<N
     height: String(note.height ?? 176),
   };
 
-  // Pipeline: beide Operationen atomar und in einem Netzwerk-Roundtrip
+  // TTL des Boards prüfen – temporäre Boards vererben ihre TTL auf Notes
+  const boardTTL = await redis.ttl(keys.boardMeta(boardId));
+
   const pipeline = redis.pipeline();
   pipeline.hset(keys.note(id), hashFields);
   pipeline.sadd(keys.boardNotes(boardId), id);
+  if (boardTTL > 0) {
+    pipeline.expire(keys.note(id), boardTTL);
+  }
   await pipeline.exec();
 
   return note;
@@ -556,14 +561,34 @@ export async function ensureMainBoard(): Promise<void> {
   }
 }
 
+const BOARD_TTL_SECONDS = 86400; // 24 Stunden
+
 /** Erstellt ein neues Board und trägt es in boards:all ein. */
-export async function createBoard(name: string, userId: string): Promise<BoardMeta> {
+export async function createBoard(
+  name: string,
+  userId: string,
+  temporary = false
+): Promise<BoardMeta> {
   const id = uuidv4();
   const createdAt = new Date().toISOString();
-  const meta: BoardMeta = { id, name, createdBy: userId, createdAt };
+  const expiresAt = temporary
+    ? new Date(Date.now() + BOARD_TTL_SECONDS * 1000).toISOString()
+    : null;
+
+  const meta: BoardMeta = { id, name, createdBy: userId, createdAt, temporary, expiresAt };
 
   const pipeline = redis.pipeline();
-  pipeline.hset(keys.boardMeta(id), { id, name, createdBy: userId, createdAt });
+  pipeline.hset(keys.boardMeta(id), {
+    id,
+    name,
+    createdBy: userId,
+    createdAt,
+    temporary: temporary ? "1" : "0",
+    ...(expiresAt ? { expiresAt } : {}),
+  });
+  if (temporary) {
+    pipeline.expire(keys.boardMeta(id), BOARD_TTL_SECONDS);
+  }
   pipeline.sadd(keys.allBoards, id);
   await pipeline.exec();
 
@@ -575,42 +600,84 @@ export async function getBoard(boardId: string): Promise<BoardMeta | null> {
   if (boardId === "main") await ensureMainBoard();
   const hash = await redis.hgetall(keys.boardMeta(boardId));
   if (!hash?.id) return null;
-  return { id: hash.id, name: hash.name, createdBy: hash.createdBy, createdAt: hash.createdAt };
+  return {
+    id: hash.id,
+    name: hash.name,
+    createdBy: hash.createdBy,
+    createdAt: hash.createdAt,
+    temporary: hash.temporary === "1",
+    expiresAt: hash.expiresAt || null,
+  };
 }
 
-/** Gibt alle Boards mit Note-Anzahl und Online-Nutzer-Anzahl zurück. */
+/** Gibt die verbleibende TTL eines Boards in Sekunden zurück (null = dauerhaft). */
+export async function getBoardTTL(boardId: string): Promise<number | null> {
+  const ttl = await redis.ttl(keys.boardMeta(boardId));
+  return ttl > 0 ? ttl : null;
+}
+
+/** Macht ein temporäres Board dauerhaft (entfernt TTL). */
+export async function makeBoardPermanent(boardId: string): Promise<void> {
+  const pipeline = redis.pipeline();
+  pipeline.persist(keys.boardMeta(boardId));
+  pipeline.hset(keys.boardMeta(boardId), { temporary: "0", expiresAt: "" });
+  await pipeline.exec();
+}
+
+/** Gibt alle Boards mit Note-Anzahl, Online-Nutzer-Anzahl und TTL zurück. */
 export async function getAllBoards(): Promise<BoardPublic[]> {
   await ensureMainBoard();
   const boardIds = await redis.smembers(keys.allBoards);
   if (boardIds.length === 0) return [];
 
+  // 4 Operationen pro Board: meta, noteCount, onlineCount, ttl
   const pipeline = redis.pipeline();
   for (const id of boardIds) {
     pipeline.hgetall(keys.boardMeta(id));
     pipeline.scard(keys.boardNotes(id));
     pipeline.scard(keys.boardOnline(id));
+    pipeline.ttl(keys.boardMeta(id));
   }
   const results = await pipeline.exec();
   if (!results) return [];
 
   const boards: BoardPublic[] = [];
-  for (let i = 0; i < boardIds.length; i++) {
-    const [metaErr, metaData] = results[i * 3];
-    const [, noteCount] = results[i * 3 + 1];
-    const [, onlineCount] = results[i * 3 + 2];
+  const staleIds: string[] = [];
 
-    if (metaErr || !metaData || typeof metaData !== "object") continue;
+  for (let i = 0; i < boardIds.length; i++) {
+    const [metaErr, metaData] = results[i * 4];
+    const [, noteCount] = results[i * 4 + 1];
+    const [, onlineCount] = results[i * 4 + 2];
+    const [, ttl] = results[i * 4 + 3];
+
+    if (metaErr || !metaData || typeof metaData !== "object") {
+      staleIds.push(boardIds[i]);
+      continue;
+    }
     const hash = metaData as Record<string, string>;
-    if (!hash.id) continue;
+    if (!hash.id) {
+      staleIds.push(boardIds[i]);
+      continue;
+    }
 
     boards.push({
       id: hash.id,
       name: hash.name,
       createdBy: hash.createdBy,
       createdAt: hash.createdAt,
+      temporary: hash.temporary === "1",
+      expiresAt: hash.expiresAt || null,
       noteCount: (noteCount as number) ?? 0,
       onlineCount: (onlineCount as number) ?? 0,
+      ttlSeconds: typeof ttl === "number" && ttl > 0 ? ttl : null,
     });
+  }
+
+  // Veraltete Board-IDs (abgelaufene TTL) aus dem Index bereinigen
+  if (staleIds.length > 0) {
+    const cleanPipeline = redis.pipeline();
+    for (const id of staleIds) cleanPipeline.srem(keys.allBoards, id);
+    await cleanPipeline.exec();
   }
 
   return boards.sort((a, b) =>

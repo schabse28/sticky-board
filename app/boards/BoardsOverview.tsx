@@ -20,6 +20,14 @@ function formatDate(iso: string): string {
   });
 }
 
+function formatTTL(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h} Std ${m} Min` : `${h} Std`;
+  if (m > 0) return `${m} Min`;
+  return "< 1 Min";
+}
+
 export default function BoardsOverview({
   initialBoards,
   username,
@@ -29,6 +37,7 @@ export default function BoardsOverview({
   const [boards, setBoards] = useState<BoardPublic[]>(initialBoards);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newBoardName, setNewBoardName] = useState("");
+  const [isTemporary, setIsTemporary] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -45,7 +54,7 @@ export default function BoardsOverview({
       const res = await fetch("/api/boards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, temporary: isTemporary }),
       });
 
       if (!res.ok) {
@@ -57,7 +66,7 @@ export default function BoardsOverview({
       const board: BoardMeta = await res.json();
       setBoards((prev) => [
         ...prev,
-        { ...board, noteCount: 0, onlineCount: 0 },
+        { ...board, noteCount: 0, onlineCount: 0, ttlSeconds: isTemporary ? 86400 : null },
       ]);
       setNewBoardName("");
       setShowCreateModal(false);
@@ -71,6 +80,7 @@ export default function BoardsOverview({
 
   function openModal() {
     setNewBoardName("");
+    setIsTemporary(false);
     setCreateError("");
     setShowCreateModal(true);
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -163,6 +173,31 @@ export default function BoardsOverview({
                 maxLength={60}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
               />
+              {/* Board-Typ: Dauerhaft oder Temporär */}
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsTemporary(false)}
+                  className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${
+                    !isTemporary
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-gray-200 text-slate-500 hover:border-slate-400"
+                  }`}
+                >
+                  Dauerhaft
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsTemporary(true)}
+                  className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${
+                    isTemporary
+                      ? "border-amber-500 bg-amber-50 text-amber-700"
+                      : "border-gray-200 text-slate-500 hover:border-amber-400"
+                  }`}
+                >
+                  Temporär (24 Std)
+                </button>
+              </div>
               {createError && (
                 <p className="mt-2 text-xs text-red-500">{createError}</p>
               )}
@@ -252,9 +287,15 @@ function BoardCard({
       </div>
 
       {/* Footer */}
-      <p className="text-[11px] text-slate-300 mt-3">
-        Erstellt {formatDate(board.createdAt)}
-      </p>
+      {board.ttlSeconds ? (
+        <p className="text-[11px] text-amber-500 mt-3 font-medium">
+          ⏱ Läuft ab in {formatTTL(board.ttlSeconds)}
+        </p>
+      ) : (
+        <p className="text-[11px] text-slate-300 mt-3">
+          Erstellt {formatDate(board.createdAt)}
+        </p>
+      )}
     </div>
   );
 }

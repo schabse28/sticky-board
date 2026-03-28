@@ -4,6 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 import type { BoardPublic, UserPublic } from "@/types";
 
+function formatTTL(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h} Std ${m} Min` : `${h} Std`;
+  if (m > 0) return `${m} Min`;
+  return "< 1 Min";
+}
+
 const SWATCH: Record<string, string> = {
   yellow: "#fde047",
   green:  "#86efac",
@@ -192,8 +200,14 @@ export default function AdminDashboard({
                             <span className="text-slate-300 text-xs">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">
-                          {formatDate(board.createdAt)}
+                        <td className="px-4 py-2.5 text-xs whitespace-nowrap">
+                          {board.ttlSeconds ? (
+                            <span className="text-amber-600 font-medium">
+                              ⏱ {formatTTL(board.ttlSeconds)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">{formatDate(board.createdAt)}</span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-3 justify-end">

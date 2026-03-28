@@ -57,11 +57,14 @@ export interface BoardMeta {
   name: string;
   createdBy: string;   // userId (oder "system" für migrierte Boards)
   createdAt: string;
+  temporary?: boolean;
+  expiresAt?: string | null;
 }
 
 export interface BoardPublic extends BoardMeta {
   noteCount: number;
   onlineCount: number;
+  ttlSeconds: number | null; // null = dauerhaft, > 0 = verbleibende Sekunden
 }
 
 export type BoardEvent =

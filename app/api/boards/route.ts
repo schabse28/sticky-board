@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Nicht authentifiziert" }, { status: 401 });
   }
 
-  let body: { name?: string };
+  let body: { name?: string; temporary?: boolean };
   try {
     body = await request.json();
   } catch {
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const board = await createBoard(name, session.user.id);
+    const board = await createBoard(name, session.user.id, body.temporary === true);
     return NextResponse.json(board, { status: 201 });
   } catch (error) {
     console.error("[POST /api/boards]", error);

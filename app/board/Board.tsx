@@ -66,6 +66,15 @@ interface BoardProps {
   userId: string;
   initialUserColor: string | null;
   isAdmin: boolean;
+  boardTtl: number | null;
+}
+
+function formatTTL(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h} Std ${m} Min` : `${h} Std`;
+  if (m > 0) return `${m} Min`;
+  return "< 1 Min";
 }
 
 // ── Komponente ─────────────────────────────────────────────────────────────
@@ -78,6 +87,7 @@ export default function Board({
   userId,
   initialUserColor,
   isAdmin,
+  boardTtl,
 }: BoardProps) {
   const [notes, setNotes] = useState<BoardNote[]>(() =>
     initialNotes.map((n, i) => ({ ...n, zIndex: i + 1 }))
@@ -88,6 +98,8 @@ export default function Board({
   const [isCreating, setIsCreating] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [cursors, setCursors] = useState<Record<string, CursorState>>({});
+  const [isTemporary, setIsTemporary] = useState(boardTtl !== null);
+  const [isPersisting, setIsPersisting] = useState(false);
 
   const dragRef = useRef<DragState | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
@@ -536,6 +548,18 @@ export default function Board({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [handleUndo]);
 
+  // ── Temporäres Board: dauerhaft machen ───────────────────────────────────
+
+  async function handlePersistBoard() {
+    setIsPersisting(true);
+    try {
+      const res = await fetch(`/api/boards/${boardId}/persist`, { method: "POST" });
+      if (res.ok) setIsTemporary(false);
+    } finally {
+      setIsPersisting(false);
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const myColor = currentUserColor ? SWATCH[currentUserColor] : null;
@@ -661,6 +685,22 @@ export default function Board({
           <SignOutButton />
         </div>
       </header>
+
+      {/* ── Temporäres-Board-Banner ──────────────────────────────────────── */}
+      {isTemporary && boardTtl !== null && (
+        <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between gap-4">
+          <span className="text-xs text-amber-700">
+            ⏱ Temporäres Board — wird in <strong>{formatTTL(boardTtl)}</strong> automatisch gelöscht
+          </span>
+          <button
+            onClick={handlePersistBoard}
+            disabled={isPersisting}
+            className="flex-shrink-0 text-xs bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-medium px-3 py-1 rounded-lg transition-colors"
+          >
+            {isPersisting ? "Wird gespeichert…" : "Session speichern"}
+          </button>
+        </div>
+      )}
 
       {/* ── Board-Fläche ─────────────────────────────────────────────────── */}
       <div
