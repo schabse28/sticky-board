@@ -2,12 +2,16 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Suspense } from "react";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
-  const [username, setUsername] = useState("");
+  const searchParams = useSearchParams();
+  const registered = searchParams.get("registered") === "1";
+
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,15 +22,17 @@ export default function LoginPage() {
     setLoading(true);
 
     const result = await signIn("credentials", {
-      username,
+      email,
       password,
       redirect: false,
     });
 
     setLoading(false);
 
-    if (result?.error) {
-      setError("Benutzername oder Passwort falsch.");
+    if (result?.error === "AccountLocked") {
+      setError("Zu viele Fehlversuche. Konto für 15 Minuten gesperrt.");
+    } else if (result?.error) {
+      setError("E-Mail oder Passwort falsch.");
     } else {
       router.push("/board");
       router.refresh();
@@ -49,20 +55,26 @@ export default function LoginPage() {
         <p className="text-sm text-gray-400">Melde dich an, um loszulegen</p>
       </div>
 
+      {registered && !error && (
+        <p className="mb-4 text-xs text-emerald-600 px-1">
+          Konto erstellt – bitte melde dich an.
+        </p>
+      )}
+
       {/* Form */}
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-3">
         <div>
           <label className="block text-[11px] tracking-[0.12em] uppercase font-mono text-gray-400 mb-2">
-            Benutzername
+            E-Mail-Adresse
           </label>
           <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             required
-            autoComplete="username"
+            autoComplete="email"
             className="w-full bg-gray-100 rounded-2xl px-5 py-4 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:bg-gray-200 transition-colors"
-            placeholder="dein_name"
+            placeholder="deine@email.de"
           />
         </div>
 
@@ -106,5 +118,13 @@ export default function LoginPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

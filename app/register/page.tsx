@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [error, setError] = useState("");
@@ -27,7 +29,7 @@ export default function RegisterPage() {
       const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, displayName, password }),
       });
 
       const data = await res.json();
@@ -37,7 +39,20 @@ export default function RegisterPage() {
         return;
       }
 
-      router.push("/login?registered=1");
+      // Nach erfolgreicher Registrierung automatisch einloggen
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        // Registrierung hat geklappt, aber Login schlug fehl – weiterleiten
+        router.push("/login?registered=1");
+      } else {
+        router.push("/board");
+        router.refresh();
+      }
     } catch {
       setError("Netzwerkfehler. Bitte versuche es erneut.");
     } finally {
@@ -65,19 +80,34 @@ export default function RegisterPage() {
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-3">
         <div>
           <label className="block text-[11px] tracking-[0.12em] uppercase font-mono text-gray-400 mb-2">
-            Benutzername
+            E-Mail-Adresse
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+            className="w-full bg-gray-100 rounded-2xl px-5 py-4 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:bg-gray-200 transition-colors"
+            placeholder="deine@email.de"
+          />
+        </div>
+
+        <div>
+          <label className="block text-[11px] tracking-[0.12em] uppercase font-mono text-gray-400 mb-2">
+            Anzeigename
           </label>
           <input
             type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
             required
-            minLength={3}
-            autoComplete="username"
+            minLength={2}
+            autoComplete="nickname"
             className="w-full bg-gray-100 rounded-2xl px-5 py-4 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:bg-gray-200 transition-colors"
-            placeholder="dein_name"
+            placeholder="Dein Name auf dem Board"
           />
-          <p className="text-[11px] text-gray-400 mt-1.5 px-1">Mindestens 3 Zeichen</p>
+          <p className="text-[11px] text-gray-400 mt-1.5 px-1">Wird auf dem Board angezeigt</p>
         </div>
 
         <div>
@@ -89,12 +119,12 @@ export default function RegisterPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={6}
+            minLength={8}
             autoComplete="new-password"
             className="w-full bg-gray-100 rounded-2xl px-5 py-4 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:bg-gray-200 transition-colors"
             placeholder="••••••••"
           />
-          <p className="text-[11px] text-gray-400 mt-1.5 px-1">Mindestens 6 Zeichen</p>
+          <p className="text-[11px] text-gray-400 mt-1.5 px-1">Mindestens 8 Zeichen</p>
         </div>
 
         <div>

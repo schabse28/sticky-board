@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createUser } from "@/lib/redis";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function POST(request: Request) {
-  let body: { username?: string; password?: string };
+  let body: { email?: string; displayName?: string; password?: string };
 
   try {
     body = await request.json();
@@ -10,24 +12,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Ungültige Anfrage" }, { status: 400 });
   }
 
-  const { username, password } = body;
+  const { email, displayName, password } = body;
 
-  if (!username || username.trim().length < 3) {
+  if (!email || !EMAIL_REGEX.test(email.trim())) {
     return NextResponse.json(
-      { error: "Benutzername muss mindestens 3 Zeichen lang sein" },
+      { error: "Bitte gib eine gültige E-Mail-Adresse ein" },
       { status: 400 }
     );
   }
 
-  if (!password || password.length < 6) {
+  if (!displayName || displayName.trim().length < 2) {
     return NextResponse.json(
-      { error: "Passwort muss mindestens 6 Zeichen lang sein" },
+      { error: "Anzeigename muss mindestens 2 Zeichen lang sein" },
+      { status: 400 }
+    );
+  }
+
+  if (!password || password.length < 8) {
+    return NextResponse.json(
+      { error: "Passwort muss mindestens 8 Zeichen lang sein" },
       { status: 400 }
     );
   }
 
   try {
-    await createUser({ username: username.trim(), password });
+    await createUser({
+      email: email.trim(),
+      displayName: displayName.trim(),
+      password,
+    });
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
     const message =

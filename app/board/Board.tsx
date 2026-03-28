@@ -41,6 +41,14 @@ interface ResizeState {
   startHeight: number;
 }
 
+interface CursorState {
+  x: number;
+  y: number;
+  displayName: string;
+  color: string;
+  lastUpdate: number;
+}
+
 interface BoardProps {
   initialNotes: Note[];
   boardId: string;
@@ -70,14 +78,31 @@ export default function Board({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [cursors, setCursors] = useState<Record<string, CursorState>>({});
 
   const dragRef = useRef<DragState | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
   const notesRef = useRef<BoardNote[]>(notes);
   const editingIdRef = useRef<string | null>(null);
+  const lastCursorSentRef = useRef<number>(0);
 
   useEffect(() => { notesRef.current = notes; }, [notes]);
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
+
+  // Cursor-Cleanup: entfernt Cursor die länger als 3,5s nicht aktualisiert wurden
+  // (spiegelt die Redis TTL von 3s wider, falls kein cursor_hidden Event kommt)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setCursors((prev) => {
+        const next = Object.fromEntries(
+          Object.entries(prev).filter(([, c]) => now - c.lastUpdate < 3500)
+        );
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // ── SSE ──────────────────────────────────────────────────────────────────
 
@@ -140,6 +165,27 @@ export default function Board({
 
         case "presence:update":
           setOnlineUsers(event.users);
+          break;
+
+        case "cursor_moved":
+          setCursors((prev) => ({
+            ...prev,
+            [event.userId]: {
+              x: event.x,
+              y: event.y,
+              displayName: event.displayName,
+              color: event.color,
+              lastUpdate: Date.now(),
+            },
+          }));
+          break;
+
+        case "cursor_hidden":
+          setCursors((prev) => {
+            const next = { ...prev };
+            delete next[event.userId];
+            return next;
+          });
           break;
       }
     };
@@ -334,6 +380,30 @@ export default function Board({
     });
   }, []);
 
+  // ── Cursor-Tracking ───────────────────────────────────────────────────────
+
+  const handleBoardMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!currentUserColor) return;
+    const now = Date.now();
+    if (now - lastCursorSentRef.current < 50) return;
+    lastCursorSentRef.current = now;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+
+    fetch(`/api/boards/${boardId}/cursors`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ x, y }),
+    }).catch(() => {});
+  }, [boardId, currentUserColor]);
+
+  const handleBoardMouseLeave = useCallback(() => {
+    if (!currentUserColor) return;
+    fetch(`/api/boards/${boardId}/cursors`, { method: "DELETE" }).catch(() => {});
+  }, [boardId, currentUserColor]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const myColor = currentUserColor ? SWATCH[currentUserColor] : null;
@@ -459,6 +529,8 @@ export default function Board({
           backgroundImage: "radial-gradient(circle, #d1d5db 1px, transparent 1px)",
           backgroundSize: "24px 24px",
         }}
+        onMouseMove={handleBoardMouseMove}
+        onMouseLeave={handleBoardMouseLeave}
         onDoubleClick={(e) => {
           // Nur Doppelklick direkt auf den Hintergrund (nicht auf eine Note)
           if (e.target !== e.currentTarget) return;
@@ -510,6 +582,49 @@ export default function Board({
             </div>
           </div>
         )}
+
+        {/* Remote-Cursor der anderen Online-Nutzer */}
+        {Object.entries(cursors).map(([cUserId, cursor]) => {
+          const c = SWATCH[cursor.color] ?? SWATCH.yellow;
+          return (
+            <div
+              key={cUserId}
+              className="pointer-events-none select-none absolute top-0 left-0"
+              style={{
+                transform: `translate(${cursor.x}px, ${cursor.y}px)`,
+                transition: "transform 0.1s ease-out",
+                zIndex: 10000,
+              }}
+            >
+              <svg width="14" height="18" viewBox="0 0 14 18" fill="none">
+                <path
+                  d="M1.5 1.5 L1.5 14.5 L4.5 11.5 L7 17 L9 16 L6.5 10.5 L11.5 10.5 Z"
+                  fill={c.bg}
+                  stroke="white"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div
+                style={{
+                  marginTop: 1,
+                  marginLeft: 4,
+                  backgroundColor: c.bg,
+                  color: c.text,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  lineHeight: 1.4,
+                  padding: "1px 5px",
+                  borderRadius: 4,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {cursor.displayName}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

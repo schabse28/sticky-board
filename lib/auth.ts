@@ -7,16 +7,22 @@ export const authOptions: NextAuthOptions = {
     CredentialsProvider({
       name: "credentials",
       credentials: {
-        username: { label: "Benutzername", type: "text" },
+        email: { label: "E-Mail", type: "email" },
         password: { label: "Passwort", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.username || !credentials?.password) return null;
+        if (!credentials?.email || !credentials?.password) return null;
 
-        const user = await verifyUser(credentials.username, credentials.password);
-        if (!user) return null;
+        const result = await verifyUser(credentials.email, credentials.password);
+        if (result === "locked") throw new Error("AccountLocked");
+        if (!result) return null;
 
-        return { id: user.id, name: user.username, role: user.role };
+        return {
+          id: result.id,
+          name: result.displayName,
+          email: result.email,
+          role: result.role,
+        };
       },
     }),
   ],

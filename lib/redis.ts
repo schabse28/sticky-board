@@ -96,6 +96,11 @@ function getRedisClient(): Redis {
 
 export const redis = getRedisClient();
 
+// Einmalige Migration alter Nutzer auf E-Mail-Auth (asynchron, nicht-blockierend)
+migrateUsersToEmailAuth().catch((err) =>
+  console.error("[sticky-board] Migration fehlgeschlagen:", err)
+);
+
 // ---------------------------------------------------------------------------
 // Key-Schemata
 // ---------------------------------------------------------------------------
@@ -108,7 +113,8 @@ const keys = {
   boardOnline: (boardId: string) => `board:${boardId}:online`,
   allBoards: "boards:all",
   user: (userId: string) => `user:${userId}`,
-  userByUsername: (username: string) => `username:${username}`,
+  userByEmail: (email: string) => `email:${email.toLowerCase()}`,
+  userByUsername: (username: string) => `username:${username}`, // Legacy – nur für Migration/Cleanup
   allUsers: "users:all",
   userLastSeen: (userId: string) => `user:${userId}:lastSeen`,
 };
@@ -286,18 +292,16 @@ export async function deleteNote(noteId: string): Promise<string | null> {
  *
  * Das Passwort wird mit bcrypt gehasht – niemals Klartext in Redis speichern.
  * Zwei Hash-Keys:
- *   - "user:{id}"           → alle Benutzerdaten
- *   - "username:{username}" → Lookup-Key (O(1) Suche nach Username)
- *
- * In SQL bräuchten wir einen UNIQUE-Index auf username. Redis löst das
- * eleganter: Der Key "username:{name}" existiert genau dann, wenn der
- * Benutzername vergeben ist.
+ *   - "user:{id}"       → alle Benutzerdaten
+ *   - "email:{email}"   → Lookup-Key (O(1) Suche nach E-Mail)
  */
 export async function createUser(userData: UserData): Promise<User> {
-  // Sicherstellen, dass der Benutzername noch nicht existiert
-  const existingId = await redis.get(keys.userByUsername(userData.username));
+  const email = userData.email.toLowerCase().trim();
+
+  // Sicherstellen, dass die E-Mail noch nicht existiert
+  const existingId = await redis.get(keys.userByEmail(email));
   if (existingId) {
-    throw new Error(`Benutzername "${userData.username}" ist bereits vergeben`);
+    throw new Error("E-Mail bereits vergeben");
   }
 
   const id = uuidv4();
@@ -310,22 +314,26 @@ export async function createUser(userData: UserData): Promise<User> {
 
   const user: User = {
     id,
-    username: userData.username,
+    email,
+    displayName: userData.displayName.trim(),
     passwordHash,
     createdAt,
     role,
+    loginAttempts: 0,
   };
 
   const pipeline = redis.pipeline();
   pipeline.hset(keys.user(id), {
     id,
-    username: user.username,
+    email,
+    displayName: user.displayName,
     passwordHash,
     createdAt,
     role,
+    loginAttempts: "0",
   });
-  // Reverse-Lookup: Username → User-ID
-  pipeline.set(keys.userByUsername(userData.username), id);
+  // Reverse-Lookup: E-Mail → User-ID
+  pipeline.set(keys.userByEmail(email), id);
   // Alle User-IDs für Admin-Übersicht
   pipeline.sadd(keys.allUsers, id);
   await pipeline.exec();
@@ -334,17 +342,14 @@ export async function createUser(userData: UserData): Promise<User> {
 }
 
 /**
- * Gibt einen Benutzer anhand seines Usernamens zurück.
+ * Gibt einen Benutzer anhand seiner E-Mail-Adresse zurück.
  *
  * Zweistufiger Lookup:
- *   1. "username:{name}" → User-ID (String, O(1))
- *   2. "user:{id}"       → Benutzerdaten (Hash, O(1))
- *
- * Dieser Ansatz vermeidet einen Table-Scan über alle User-Hashes,
- * der in SQL ohne Index ebenfalls teuer wäre.
+ *   1. "email:{email}" → User-ID (String, O(1))
+ *   2. "user:{id}"     → Benutzerdaten (Hash, O(1))
  */
-export async function getUser(username: string): Promise<User | null> {
-  const userId = await redis.get(keys.userByUsername(username));
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const userId = await redis.get(keys.userByEmail(email.toLowerCase().trim()));
   if (!userId) return null;
 
   const hash = await redis.hgetall(keys.user(userId));
@@ -352,23 +357,109 @@ export async function getUser(username: string): Promise<User | null> {
 
   return {
     id: hash.id,
-    username: hash.username,
+    email: hash.email,
+    displayName: hash.displayName,
     passwordHash: hash.passwordHash,
     createdAt: hash.createdAt,
     role: (hash.role as "admin" | "user") ?? "user",
+    loginAttempts: hash.loginAttempts ? Number(hash.loginAttempts) : 0,
+    lockedUntil: hash.lockedUntil || null,
   };
 }
 
 /**
- * Überprüft Benutzername und Passwort.
- * Gibt den User zurück wenn die Credentials korrekt sind, sonst null.
+ * Überprüft E-Mail und Passwort mit Brute-Force-Schutz.
+ * Nach 5 Fehlversuchen wird der Account 15 Minuten gesperrt.
+ * Gibt den User zurück wenn korrekt, "locked" wenn gesperrt, sonst null.
  */
-export async function verifyUser(username: string, password: string): Promise<User | null> {
-  const user = await getUser(username);
+export async function verifyUser(
+  email: string,
+  password: string
+): Promise<User | null | "locked"> {
+  const user = await getUserByEmail(email);
   if (!user) return null;
 
+  // Sperre prüfen
+  if (user.lockedUntil) {
+    const lockedUntil = new Date(user.lockedUntil);
+    if (lockedUntil > new Date()) {
+      return "locked";
+    }
+    // Sperre abgelaufen – zurücksetzen
+    await redis.hset(keys.user(user.id), { loginAttempts: "0", lockedUntil: "" });
+    user.loginAttempts = 0;
+    user.lockedUntil = null;
+  }
+
   const isValid = await bcrypt.compare(password, user.passwordHash);
-  return isValid ? user : null;
+
+  if (!isValid) {
+    const attempts = (user.loginAttempts ?? 0) + 1;
+    if (attempts >= 5) {
+      const lockedUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      await redis.hset(keys.user(user.id), {
+        loginAttempts: String(attempts),
+        lockedUntil,
+      });
+    } else {
+      await redis.hset(keys.user(user.id), { loginAttempts: String(attempts) });
+    }
+    return null;
+  }
+
+  // Erfolg – Fehlversuche zurücksetzen
+  await redis.hset(keys.user(user.id), { loginAttempts: "0", lockedUntil: "" });
+  return user;
+}
+
+/**
+ * Migriert bestehende Nutzer (username-basiert) auf das neue E-Mail-System.
+ * Läuft einmalig; wird durch den Redis-Key "migration:v2:email:done" markiert.
+ */
+export async function migrateUsersToEmailAuth(): Promise<void> {
+  const migrationKey = "migration:v2:email:done";
+  const alreadyDone = await redis.get(migrationKey);
+  if (alreadyDone) return;
+
+  const userIds = await redis.smembers(keys.allUsers);
+  if (userIds.length === 0) {
+    await redis.set(migrationKey, "1");
+    return;
+  }
+
+  // Alle User-Hashes laden
+  const fetchPipeline = redis.pipeline();
+  for (const userId of userIds) {
+    fetchPipeline.hgetall(keys.user(userId));
+  }
+  const results = await fetchPipeline.exec();
+  if (!results) {
+    await redis.set(migrationKey, "1");
+    return;
+  }
+
+  const writePipeline = redis.pipeline();
+  for (let i = 0; i < userIds.length; i++) {
+    const [err, data] = results[i];
+    if (err || !data || typeof data !== "object") continue;
+    const hash = data as Record<string, string>;
+    if (!hash.id || hash.email) continue; // bereits migriert
+
+    const email = `${hash.username ?? hash.id}@local.dev`.toLowerCase();
+    const displayName = hash.username ?? hash.id;
+
+    writePipeline.hset(keys.user(hash.id), {
+      email,
+      displayName,
+      loginAttempts: "0",
+    });
+    writePipeline.set(keys.userByEmail(email), hash.id);
+  }
+
+  await writePipeline.exec();
+  await redis.set(migrationKey, "1");
+
+  console.log("[sticky-board] Migration v2: Nutzer auf E-Mail-Authentifizierung migriert");
 }
 
 // ---------------------------------------------------------------------------
@@ -603,7 +694,8 @@ export async function getAllUsers(): Promise<UserPublic[]> {
 
     users.push({
       id: hash.id,
-      username: hash.username,
+      email: hash.email ?? `${hash.username ?? hash.id}@local.dev`,
+      displayName: hash.displayName ?? hash.username ?? hash.id,
       createdAt: hash.createdAt,
       role: (hash.role as "admin" | "user") ?? "user",
       color: (colorResult[1] as string | null) ?? null,
@@ -617,13 +709,15 @@ export async function getAllUsers(): Promise<UserPublic[]> {
 
 /**
  * Löscht einen Nutzer vollständig:
- * User-Hash, Username-Lookup, AllUsers-Set, Farbe, lastSeen, Online-Präsenz.
+ * User-Hash, E-Mail-Lookup, (Legacy-)Username-Lookup, AllUsers-Set, Farbe, lastSeen, Online-Präsenz.
  */
 export async function deleteUser(userId: string): Promise<void> {
-  const username = await redis.hget(keys.user(userId), "username");
+  const hash = await redis.hmget(keys.user(userId), "email", "username");
+  const [email, username] = hash;
   const pipeline = redis.pipeline();
   pipeline.del(keys.user(userId));
-  if (username) pipeline.del(keys.userByUsername(username));
+  if (email) pipeline.del(keys.userByEmail(email));
+  if (username) pipeline.del(keys.userByUsername(username)); // Legacy-Cleanup
   pipeline.srem(keys.allUsers, userId);
   pipeline.del(`user:${userId}:color`);
   pipeline.del(keys.userLastSeen(userId));

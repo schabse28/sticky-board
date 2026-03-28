@@ -18,22 +18,27 @@ export interface Note extends NoteData {
 }
 
 export interface UserData {
-  username: string;
+  email: string;
+  displayName: string;
   password: string;
 }
 
 export interface User {
   id: string;
-  username: string;
+  email: string;
+  displayName: string;
   passwordHash: string;
   createdAt: string;
   role: "admin" | "user";
+  loginAttempts?: number;
+  lockedUntil?: string | null;
 }
 
 // Öffentliche Nutzerdarstellung (ohne Passwort-Hash)
 export interface UserPublic {
   id: string;
-  username: string;
+  email: string;
+  displayName: string;
   createdAt: string;
   role: "admin" | "user";
   color: string | null;
@@ -65,4 +70,6 @@ export type BoardEvent =
   | { type: "note:text_updated"; noteId: string; text: string; byUserId: string }
   | { type: "note:resized"; noteId: string; width: number; height: number; byUserId: string }
   | { type: "note:deleted"; noteId: string; byUserId: string }
-  | { type: "presence:update"; users: OnlineUser[] };
+  | { type: "presence:update"; users: OnlineUser[] }
+  | { type: "cursor_moved"; userId: string; displayName: string; color: string; x: number; y: number }
+  | { type: "cursor_hidden"; userId: string };

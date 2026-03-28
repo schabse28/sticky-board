@@ -80,7 +80,17 @@ export async function GET(request: Request) {
       // boardChannel: note-spezifische Events dieses Boards
       // PRESENCE_CHANNEL: globale Online-Nutzer-Updates (board-übergreifend)
       await subscriber.subscribe(boardChannel(boardId), PRESENCE_CHANNEL);
-      subscriber.on("message", (_ch, msg) => send(msg));
+      subscriber.on("message", (_ch, msg) => {
+        // Eigene Cursor-Events nicht zurücksenden (der Client kennt seine eigene Position)
+        try {
+          const event = JSON.parse(msg) as { type: string; userId?: string };
+          if (event.userId === userId &&
+              (event.type === "cursor_moved" || event.type === "cursor_hidden")) {
+            return;
+          }
+        } catch {}
+        send(msg);
+      });
 
       // Nutzer global + boardspezifisch online setzen, dann Presence broadcasten
       const userColor = (await getUserColor(userId)) ?? "yellow";

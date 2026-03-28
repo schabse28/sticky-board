@@ -258,12 +258,15 @@ export default function AdminDashboard({
                                   style={{ backgroundColor: SWATCH[user.color] ?? "#fde047" }}
                                 />
                               )}
-                              <span className="font-medium text-slate-700">
-                                {user.username}
-                                {isSelf && (
-                                  <span className="ml-1 text-[10px] text-slate-400">(du)</span>
-                                )}
-                              </span>
+                              <div>
+                                <span className="font-medium text-slate-700">
+                                  {user.displayName}
+                                  {isSelf && (
+                                    <span className="ml-1 text-[10px] text-slate-400">(du)</span>
+                                  )}
+                                </span>
+                                <p className="text-[11px] text-slate-400">{user.email}</p>
+                              </div>
                             </div>
                           </td>
                           <td className="px-4 py-2.5">
