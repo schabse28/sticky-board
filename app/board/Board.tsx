@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import type { Note, BoardEvent, OnlineUser } from "@/types";
+import type { Note, Shape, BoardEvent, OnlineUser } from "@/types";
 import StickyNote from "./StickyNote";
 import SignOutButton from "./SignOutButton";
 import ColorSetup from "./ColorSetup";
@@ -25,6 +25,8 @@ const NOTE_MIN_H = 120;
 // ── Typen ──────────────────────────────────────────────────────────────────
 
 type BoardNote = Note & { zIndex: number };
+type BoardShape = Shape & { zIndex: number };
+type ShapeTool = "rect" | "circle" | "arrow";
 
 interface DragState {
   noteId: string;
@@ -42,6 +44,34 @@ interface ResizeState {
   startHeight: number;
 }
 
+interface DrawingState {
+  tool: ShapeTool;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+}
+
+interface ShapeDragState {
+  shapeId: string;
+  startMouseX: number;
+  startMouseY: number;
+  startX: number;
+  startY: number;
+}
+
+interface ShapeResizeState {
+  shapeId: string;
+  shapeType: "rect" | "circle" | "arrow";
+  anchorX: number;
+  anchorY: number;
+  draggingTail: boolean;
+  origX: number;
+  origY: number;
+  origWidth: number;
+  origHeight: number;
+}
+
 interface CursorState {
   x: number;
   y: number;
@@ -55,12 +85,17 @@ type UndoAction =
   | { type: "note_moved"; noteId: string; oldPosX: number; oldPosY: number }
   | { type: "note_deleted"; noteData: Note }
   | { type: "note_resized"; noteId: string; oldWidth: number; oldHeight: number }
-  | { type: "note_text_changed"; noteId: string; oldText: string };
+  | { type: "note_text_changed"; noteId: string; oldText: string }
+  | { type: "shape_created"; shapeId: string }
+  | { type: "shape_moved"; shapeId: string; oldX: number; oldY: number }
+  | { type: "shape_resized"; shapeId: string; oldX: number; oldY: number; oldWidth: number; oldHeight: number }
+  | { type: "shape_deleted"; shapeData: Shape };
 
 const UNDO_LIMIT = 10;
 
 interface BoardProps {
   initialNotes: Note[];
+  initialShapes: Shape[];
   boardId: string;
   boardName: string;
   username: string;
@@ -78,10 +113,21 @@ function formatTTL(seconds: number): string {
   return "< 1 Min";
 }
 
+function arrowHeadPoints(x1: number, y1: number, x2: number, y2: number): string {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const len = 14;
+  return [
+    [x2 - len * Math.cos(angle - Math.PI / 7), y2 - len * Math.sin(angle - Math.PI / 7)],
+    [x2, y2],
+    [x2 - len * Math.cos(angle + Math.PI / 7), y2 - len * Math.sin(angle + Math.PI / 7)],
+  ].map(([px, py]) => `${px},${py}`).join(" ");
+}
+
 // ── Komponente ─────────────────────────────────────────────────────────────
 
 export default function Board({
   initialNotes,
+  initialShapes,
   boardId,
   boardName,
   username,
@@ -104,12 +150,24 @@ export default function Board({
   const [isPersisting, setIsPersisting] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
 
+  // Shape-State
+  const [shapes, setShapes] = useState<BoardShape[]>(() =>
+    initialShapes.map((s, i) => ({ ...s, zIndex: i + 1 }))
+  );
+  const [activeTool, setActiveTool] = useState<ShapeTool | null>(null);
+  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+  const [drawingShape, setDrawingShape] = useState<DrawingState | null>(null);
+
   const dragRef = useRef<DragState | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
   const notesRef = useRef<BoardNote[]>(notes);
   const editingIdRef = useRef<string | null>(null);
   const lastCursorSentRef = useRef<number>(0);
   const undoStackRef = useRef<UndoAction[]>([]);
+  const drawingRef = useRef<DrawingState | null>(null);
+  const shapeDragRef = useRef<ShapeDragState | null>(null);
+  const shapeResizeRef = useRef<ShapeResizeState | null>(null);
+  const shapesRef = useRef<BoardShape[]>(shapes);
   const [undoCount, setUndoCount] = useState(0);
 
   function pushUndo(action: UndoAction) {
@@ -120,6 +178,7 @@ export default function Board({
 
   useEffect(() => { notesRef.current = notes; }, [notes]);
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
+  useEffect(() => { shapesRef.current = shapes; }, [shapes]);
 
   // Cursor-Cleanup: entfernt Cursor die länger als 3,5s nicht aktualisiert wurden
   // (spiegelt die Redis TTL von 3s wider, falls kein cursor_hidden Event kommt)
@@ -179,7 +238,6 @@ export default function Board({
           break;
 
         case "note:resized":
-          // Nicht überschreiben während wir diese Note selbst resizen
           if (resizeRef.current?.noteId === event.noteId) return;
           setNotes((prev) =>
             prev.map((n) =>
@@ -221,12 +279,10 @@ export default function Board({
           break;
 
         case "user_updated":
-          // Eigenes Profil: lokalen State sofort aktualisieren
           if (event.userId === userId) {
             if (event.displayName) setDisplayName(event.displayName);
             if (event.color) setCurrentUserColor(event.color);
           }
-          // Online-User-Liste aktualisieren
           setOnlineUsers((prev) =>
             prev.map((u) =>
               u.id === event.userId
@@ -234,14 +290,51 @@ export default function Board({
                 : u
             )
           );
-          // Notes des geänderten Nutzers umfärben
           if (event.color) {
             setNotes((prev) =>
               prev.map((n) =>
                 n.userId === event.userId ? { ...n, color: event.color } : n
               )
             );
+            setShapes((prev) =>
+              prev.map((s) =>
+                s.userId === event.userId ? { ...s, color: event.color } : s
+              )
+            );
           }
+          break;
+
+        // Shape-Events
+        case "shape:created":
+          setShapes((prev) => {
+            if (prev.some((s) => s.id === event.shape.id)) return prev;
+            const maxZ = Math.max(...prev.map((s) => s.zIndex), 0);
+            return [...prev, { ...event.shape, zIndex: maxZ + 1 }];
+          });
+          break;
+
+        case "shape:moved":
+          if (shapeDragRef.current?.shapeId === event.shapeId) return;
+          setShapes((prev) =>
+            prev.map((s) =>
+              s.id === event.shapeId ? { ...s, x: event.x, y: event.y } : s
+            )
+          );
+          break;
+
+        case "shape:resized":
+          if (shapeResizeRef.current?.shapeId === event.shapeId) return;
+          setShapes((prev) =>
+            prev.map((s) =>
+              s.id === event.shapeId
+                ? { ...s, x: event.x, y: event.y, width: event.width, height: event.height }
+                : s
+            )
+          );
+          break;
+
+        case "shape:deleted":
+          setShapes((prev) => prev.filter((s) => s.id !== event.shapeId));
           break;
       }
     };
@@ -251,13 +344,13 @@ export default function Board({
     return () => es.close();
   }, [currentUserColor, boardId]);
 
-  // ── Drag & Drop + Resize ─────────────────────────────────────────────────
-  // Beide Interaktionen laufen über globale Mouse-Events, damit das Ziehen
-  // außerhalb der Note-Fläche weiterhin funktioniert.
+  // ── Drag & Drop + Resize + Shape-Interaktionen ─────────────────────────
+  // Alle laufen über globale Mouse-Events, damit Ziehen außerhalb der
+  // Element-Fläche weiterhin funktioniert.
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
-      // Drag-Logik
+      // Note-Drag
       const d = dragRef.current;
       if (d) {
         const dx = e.clientX - d.startMouseX;
@@ -272,7 +365,7 @@ export default function Board({
         return;
       }
 
-      // Resize-Logik
+      // Note-Resize
       const r = resizeRef.current;
       if (r) {
         const dx = e.clientX - r.startMouseX;
@@ -284,17 +377,77 @@ export default function Board({
             n.id === r.noteId ? { ...n, width: newWidth, height: newHeight } : n
           )
         );
+        return;
+      }
+
+      // Shape-Drawing (Vorschau)
+      const dr = drawingRef.current;
+      if (dr) {
+        const canvas = document.getElementById("board-canvas");
+        if (canvas) {
+          const rect = canvas.getBoundingClientRect();
+          dr.currentX = Math.round(e.clientX - rect.left);
+          dr.currentY = Math.round(e.clientY - rect.top);
+          setDrawingShape({ ...dr });
+        }
+        return;
+      }
+
+      // Shape-Drag
+      const sd = shapeDragRef.current;
+      if (sd) {
+        const dx = e.clientX - sd.startMouseX;
+        const dy = e.clientY - sd.startMouseY;
+        setShapes((prev) =>
+          prev.map((s) =>
+            s.id === sd.shapeId ? { ...s, x: sd.startX + dx, y: sd.startY + dy } : s
+          )
+        );
+        return;
+      }
+
+      // Shape-Resize
+      const sr = shapeResizeRef.current;
+      if (sr) {
+        const canvas = document.getElementById("board-canvas");
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = Math.round(e.clientX - rect.left);
+        const mouseY = Math.round(e.clientY - rect.top);
+
+        let newX: number, newY: number, newW: number, newH: number;
+        if (sr.shapeType === "arrow") {
+          if (sr.draggingTail) {
+            newX = mouseX; newY = mouseY;
+            newW = sr.anchorX - mouseX; newH = sr.anchorY - mouseY;
+          } else {
+            newX = sr.anchorX; newY = sr.anchorY;
+            newW = mouseX - sr.anchorX; newH = mouseY - sr.anchorY;
+          }
+        } else {
+          newX = Math.min(sr.anchorX, mouseX);
+          newY = Math.min(sr.anchorY, mouseY);
+          newW = Math.abs(mouseX - sr.anchorX);
+          newH = Math.abs(mouseY - sr.anchorY);
+        }
+
+        setShapes((prev) =>
+          prev.map((s) =>
+            s.id === sr.shapeId
+              ? { ...s, x: newX, y: newY, width: newW, height: newH }
+              : s
+          )
+        );
       }
     };
 
     const onMouseUp = () => {
-      // Drag beenden und Position speichern
+      // Note-Drag abschließen
       const d = dragRef.current;
       if (d) {
         dragRef.current = null;
         const note = notesRef.current.find((n) => n.id === d.noteId);
         if (note) {
-          // Undo-Eintrag nur wenn sich die Position geändert hat
           if (Math.round(note.posX) !== Math.round(d.startNoteX) ||
               Math.round(note.posY) !== Math.round(d.startNoteY)) {
             pushUndo({ type: "note_moved", noteId: d.noteId, oldPosX: d.startNoteX, oldPosY: d.startNoteY });
@@ -311,7 +464,7 @@ export default function Board({
         return;
       }
 
-      // Resize beenden und Größe speichern
+      // Note-Resize abschließen
       const r = resizeRef.current;
       if (r) {
         resizeRef.current = null;
@@ -319,7 +472,6 @@ export default function Board({
         if (note) {
           const curW = Math.round(note.width ?? NOTE_DEFAULT_W);
           const curH = Math.round(note.height ?? NOTE_DEFAULT_H);
-          // Undo-Eintrag nur wenn sich die Größe geändert hat
           if (curW !== Math.round(r.startWidth) || curH !== Math.round(r.startHeight)) {
             pushUndo({ type: "note_resized", noteId: r.noteId, oldWidth: r.startWidth, oldHeight: r.startHeight });
           }
@@ -327,6 +479,78 @@ export default function Board({
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ width: curW, height: curH }),
+          });
+        }
+        return;
+      }
+
+      // Shape-Drawing abschließen
+      const dr = drawingRef.current;
+      if (dr) {
+        drawingRef.current = null;
+        setDrawingShape(null);
+
+        const w = dr.currentX - dr.startX;
+        const h = dr.currentY - dr.startY;
+        if (Math.abs(w) < 10 && Math.abs(h) < 10) return;
+
+        let sx: number, sy: number, sw: number, sh: number;
+        if (dr.tool === "arrow") {
+          sx = dr.startX; sy = dr.startY; sw = w; sh = h;
+        } else {
+          sx = Math.min(dr.startX, dr.currentX);
+          sy = Math.min(dr.startY, dr.currentY);
+          sw = Math.abs(w); sh = Math.abs(h);
+        }
+
+        fetch(`/api/boards/${boardId}/shapes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: dr.tool, x: sx, y: sy, width: sw, height: sh, filled: false, strokeWidth: 2 }),
+        }).then(async (res) => {
+          if (res.ok) {
+            const shape = (await res.json()) as Shape;
+            const maxZ = Math.max(...shapesRef.current.map((s) => s.zIndex), 0);
+            setShapes((prev) => [...prev, { ...shape, zIndex: maxZ + 1 }]);
+            pushUndo({ type: "shape_created", shapeId: shape.id });
+          }
+        });
+        return;
+      }
+
+      // Shape-Drag abschließen
+      const sd = shapeDragRef.current;
+      if (sd) {
+        shapeDragRef.current = null;
+        const shape = shapesRef.current.find((s) => s.id === sd.shapeId);
+        if (shape && (Math.round(shape.x) !== Math.round(sd.startX) || Math.round(shape.y) !== Math.round(sd.startY))) {
+          pushUndo({ type: "shape_moved", shapeId: sd.shapeId, oldX: sd.startX, oldY: sd.startY });
+          fetch(`/api/boards/${boardId}/shapes/${sd.shapeId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ x: Math.round(shape.x), y: Math.round(shape.y) }),
+          });
+        }
+        return;
+      }
+
+      // Shape-Resize abschließen
+      const sr = shapeResizeRef.current;
+      if (sr) {
+        shapeResizeRef.current = null;
+        const shape = shapesRef.current.find((s) => s.id === sr.shapeId);
+        if (shape && (shape.x !== sr.origX || shape.y !== sr.origY || shape.width !== sr.origWidth || shape.height !== sr.origHeight)) {
+          pushUndo({
+            type: "shape_resized", shapeId: sr.shapeId,
+            oldX: sr.origX, oldY: sr.origY, oldWidth: sr.origWidth, oldHeight: sr.origHeight,
+          });
+          fetch(`/api/boards/${boardId}/shapes/${sr.shapeId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              x: Math.round(shape.x), y: Math.round(shape.y),
+              width: Math.round(shape.width), height: Math.round(shape.height),
+            }),
           });
         }
       }
@@ -369,8 +593,6 @@ export default function Board({
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
 
-  // posXOverride/posYOverride: gesetzt beim Doppelklick auf den Hintergrund,
-  // sonst zufällige Position auf dem Board.
   const handleCreate = useCallback(async (posXOverride?: number, posYOverride?: number) => {
     if (!currentUserColor || isCreating) return;
     setIsCreating(true);
@@ -412,13 +634,10 @@ export default function Board({
   const handleDelete = useCallback(async (noteId: string, noteOwnerId: string) => {
     if (editingIdRef.current === noteId) setEditingId(null);
 
-    // Note-Daten für Undo sichern bevor sie gelöscht wird
     const savedNote = notesRef.current.find((n) => n.id === noteId);
-
     setDeletingIds((prev) => new Set(prev).add(noteId));
 
     try {
-      // Admins nutzen die Admin-Route um fremde Notes zu löschen
       const isOwner = noteOwnerId === userId;
       const url = (!isOwner && isAdmin)
         ? `/api/admin/notes/${noteId}`
@@ -480,6 +699,74 @@ export default function Board({
     fetch(`/api/boards/${boardId}/cursors`, { method: "DELETE" }).catch(() => {});
   }, [boardId, currentUserColor]);
 
+  // ── Shape-Interaktionen ────────────────────────────────────────────────────
+
+  function handleBoardMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget) return;
+    if (selectedShapeId) setSelectedShapeId(null);
+    if (!activeTool || !currentUserColor) return;
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+    drawingRef.current = { tool: activeTool, startX: x, startY: y, currentX: x, currentY: y };
+    setDrawingShape({ tool: activeTool, startX: x, startY: y, currentX: x, currentY: y });
+  }
+
+  function handleShapeMouseDown(e: React.MouseEvent, shape: BoardShape) {
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedShapeId(shape.id);
+    if (shape.userId !== userId) return;
+    const maxZ = Math.max(...shapesRef.current.map((s) => s.zIndex), 0);
+    setShapes((prev) => prev.map((s) => (s.id === shape.id ? { ...s, zIndex: maxZ + 1 } : s)));
+    shapeDragRef.current = {
+      shapeId: shape.id,
+      startMouseX: e.clientX, startMouseY: e.clientY,
+      startX: shape.x, startY: shape.y,
+    };
+  }
+
+  function handleShapeResizeStart(e: React.MouseEvent, shape: BoardShape, handle: string) {
+    e.stopPropagation();
+    e.preventDefault();
+    let anchorX: number, anchorY: number;
+    let draggingTail = false;
+    if (shape.type === "arrow") {
+      if (handle === "start") {
+        anchorX = shape.x + shape.width; anchorY = shape.y + shape.height;
+        draggingTail = true;
+      } else {
+        anchorX = shape.x; anchorY = shape.y;
+      }
+    } else {
+      switch (handle) {
+        case "nw": anchorX = shape.x + shape.width; anchorY = shape.y + shape.height; break;
+        case "ne": anchorX = shape.x; anchorY = shape.y + shape.height; break;
+        case "sw": anchorX = shape.x + shape.width; anchorY = shape.y; break;
+        default:   anchorX = shape.x; anchorY = shape.y; break;
+      }
+    }
+    shapeResizeRef.current = {
+      shapeId: shape.id, shapeType: shape.type,
+      anchorX, anchorY, draggingTail,
+      origX: shape.x, origY: shape.y, origWidth: shape.width, origHeight: shape.height,
+    };
+  }
+
+  async function handleDeleteShape(shapeId: string) {
+    const shape = shapesRef.current.find((s) => s.id === shapeId);
+    if (!shape) return;
+    const isOwner = shape.userId === userId;
+    if (!isOwner && !isAdmin) return;
+    setShapes((prev) => prev.filter((s) => s.id !== shapeId));
+    setSelectedShapeId(null);
+    const res = await fetch(`/api/boards/${boardId}/shapes/${shapeId}`, { method: "DELETE" });
+    if (res.ok && isOwner) {
+      pushUndo({ type: "shape_deleted", shapeData: shape });
+    }
+  }
+
   // ── Undo ──────────────────────────────────────────────────────────────────
 
   const handleUndo = useCallback(async () => {
@@ -517,7 +804,6 @@ export default function Board({
           const note: Note = await res.json();
           const maxZ = Math.max(...notesRef.current.map((n) => n.zIndex), 0);
           setNotes((prev) => [...prev, { ...note, zIndex: maxZ + 1 }]);
-          // Originalmaße wiederherstellen wenn sie vom Standard abweichen
           if (d.width && d.height && (d.width !== NOTE_DEFAULT_W || d.height !== NOTE_DEFAULT_H)) {
             fetch(`/api/notes/${note.id}`, {
               method: "PATCH",
@@ -559,6 +845,60 @@ export default function Board({
           body: JSON.stringify({ text: action.oldText }),
         }).catch(() => {});
         break;
+
+      case "shape_created":
+        setShapes((prev) => prev.filter((s) => s.id !== action.shapeId));
+        fetch(`/api/boards/${boardId}/shapes/${action.shapeId}`, { method: "DELETE" }).catch(() => {});
+        break;
+
+      case "shape_moved":
+        setShapes((prev) =>
+          prev.map((s) =>
+            s.id === action.shapeId ? { ...s, x: action.oldX, y: action.oldY } : s
+          )
+        );
+        fetch(`/api/boards/${boardId}/shapes/${action.shapeId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ x: action.oldX, y: action.oldY }),
+        }).catch(() => {});
+        break;
+
+      case "shape_resized":
+        setShapes((prev) =>
+          prev.map((s) =>
+            s.id === action.shapeId
+              ? { ...s, x: action.oldX, y: action.oldY, width: action.oldWidth, height: action.oldHeight }
+              : s
+          )
+        );
+        fetch(`/api/boards/${boardId}/shapes/${action.shapeId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            x: action.oldX, y: action.oldY, width: action.oldWidth, height: action.oldHeight,
+          }),
+        }).catch(() => {});
+        break;
+
+      case "shape_deleted": {
+        const sd = action.shapeData;
+        const shapeRes = await fetch(`/api/boards/${boardId}/shapes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: sd.type, x: sd.x, y: sd.y,
+            width: sd.width, height: sd.height,
+            filled: sd.filled, strokeWidth: sd.strokeWidth,
+          }),
+        });
+        if (shapeRes.ok) {
+          const restored = (await shapeRes.json()) as Shape;
+          const maxZ = Math.max(...shapesRef.current.map((s) => s.zIndex), 0);
+          setShapes((prev) => [...prev, { ...restored, zIndex: maxZ + 1 }]);
+        }
+        break;
+      }
     }
   }, [boardId]);
 
@@ -566,7 +906,7 @@ export default function Board({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
-        if (editingIdRef.current) return; // Textfeld hat eigenes Undo
+        if (editingIdRef.current) return;
         e.preventDefault();
         handleUndo();
       }
@@ -574,6 +914,29 @@ export default function Board({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [handleUndo]);
+
+  // Löschen/Escape für Shapes
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (drawingRef.current) {
+          drawingRef.current = null;
+          setDrawingShape(null);
+          return;
+        }
+        setActiveTool(null);
+        setSelectedShapeId(null);
+        return;
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedShapeId) {
+        if (editingIdRef.current) return;
+        e.preventDefault();
+        handleDeleteShape(selectedShapeId);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedShapeId]);
 
   // ── Temporäres Board: dauerhaft machen ───────────────────────────────────
 
@@ -682,8 +1045,33 @@ export default function Board({
             {undoCount > 0 && <span className="tabular-nums">{undoCount}</span>}
           </button>
 
+          {/* Shape-Tools */}
+          <div className="flex items-center gap-0.5 border-l border-slate-700 pl-2">
+            {([
+              { tool: "rect" as const, icon: "□", title: "Rechteck" },
+              { tool: "circle" as const, icon: "○", title: "Kreis" },
+              { tool: "arrow" as const, icon: "→", title: "Pfeil" },
+            ]).map(({ tool, icon, title }) => (
+              <button
+                key={tool}
+                onClick={() => {
+                  setActiveTool((prev) => (prev === tool ? null : tool));
+                  setSelectedShapeId(null);
+                }}
+                title={title}
+                className={`w-7 h-7 flex items-center justify-center rounded-md text-sm transition-colors ${
+                  activeTool === tool
+                    ? "bg-white text-slate-900"
+                    : "text-slate-400 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                {icon}
+              </button>
+            ))}
+          </div>
+
           <button
-            onClick={() => handleCreate()}
+            onClick={() => { setActiveTool(null); handleCreate(); }}
             disabled={!currentUserColor || isCreating}
             className="flex items-center gap-1.5 bg-white hover:bg-gray-100 active:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed text-slate-900 font-medium text-xs px-3 py-1.5 rounded-lg transition-colors"
           >
@@ -738,20 +1126,186 @@ export default function Board({
           backgroundColor: "#ffffff",
           backgroundImage: "radial-gradient(circle, #d1d5db 1px, transparent 1px)",
           backgroundSize: "24px 24px",
+          cursor: activeTool ? "crosshair" : undefined,
         }}
+        onMouseDown={handleBoardMouseDown}
         onMouseMove={handleBoardMouseMove}
         onMouseLeave={handleBoardMouseLeave}
         onDoubleClick={(e) => {
-          // Nur Doppelklick direkt auf den Hintergrund (nicht auf eine Note)
+          if (activeTool) return;
           if (e.target !== e.currentTarget) return;
           if (!currentUserColor || isCreating) return;
           const rect = e.currentTarget.getBoundingClientRect();
-          // Note mittig unter dem Cursor platzieren, Header auf Klickhöhe
           const posX = Math.max(8, Math.round(e.clientX - rect.left - NOTE_DEFAULT_W / 2));
           const posY = Math.max(8, Math.round(e.clientY - rect.top - 14));
           handleCreate(posX, posY);
         }}
       >
+        {/* ── Shape-Layer (SVG) ──────────────────────────────────────────── */}
+        <svg
+          className="absolute inset-0 w-full h-full"
+          style={{ pointerEvents: "none", zIndex: 1 }}
+        >
+          {[...shapes].sort((a, b) => a.zIndex - b.zIndex).map((shape) => {
+            const c = SWATCH[shape.color] ?? SWATCH.yellow;
+            const isSelected = selectedShapeId === shape.id;
+            const isOwner = shape.userId === userId;
+
+            return (
+              <g key={shape.id}>
+                {/* Shape-Body */}
+                {shape.type === "rect" && (
+                  <rect
+                    x={shape.x} y={shape.y}
+                    width={Math.abs(shape.width)} height={Math.abs(shape.height)}
+                    fill={shape.filled ? c.bg + "30" : "none"}
+                    stroke={c.bg} strokeWidth={2.5} rx={4}
+                    style={{ pointerEvents: "auto", cursor: isOwner ? "move" : "default" }}
+                    onMouseDown={(e) => handleShapeMouseDown(e, shape)}
+                  />
+                )}
+                {shape.type === "circle" && (
+                  <ellipse
+                    cx={shape.x + shape.width / 2} cy={shape.y + shape.height / 2}
+                    rx={Math.abs(shape.width) / 2} ry={Math.abs(shape.height) / 2}
+                    fill={shape.filled ? c.bg + "30" : "none"}
+                    stroke={c.bg} strokeWidth={2.5}
+                    style={{ pointerEvents: "auto", cursor: isOwner ? "move" : "default" }}
+                    onMouseDown={(e) => handleShapeMouseDown(e, shape)}
+                  />
+                )}
+                {shape.type === "arrow" && (() => {
+                  const x1 = shape.x, y1 = shape.y;
+                  const x2 = shape.x + shape.width, y2 = shape.y + shape.height;
+                  return (
+                    <>
+                      {/* Breitere unsichtbare Linie für einfacheres Klicken */}
+                      <line x1={x1} y1={y1} x2={x2} y2={y2}
+                        stroke="transparent" strokeWidth={14}
+                        style={{ pointerEvents: "auto", cursor: isOwner ? "move" : "default" }}
+                        onMouseDown={(e) => handleShapeMouseDown(e, shape)}
+                      />
+                      <line x1={x1} y1={y1} x2={x2} y2={y2}
+                        stroke={c.bg} strokeWidth={shape.strokeWidth ?? 2}
+                        strokeLinecap="round"
+                        pointerEvents="none"
+                      />
+                      <polygon
+                        points={arrowHeadPoints(x1, y1, x2, y2)}
+                        fill={c.bg} pointerEvents="none"
+                      />
+                    </>
+                  );
+                })()}
+
+                {/* Selection-Outline + Handles */}
+                {isSelected && shape.type !== "arrow" && (
+                  <>
+                    <rect
+                      x={shape.x - 2} y={shape.y - 2}
+                      width={Math.abs(shape.width) + 4} height={Math.abs(shape.height) + 4}
+                      fill="none" stroke="#3b82f6" strokeWidth={1.5}
+                      strokeDasharray="5 3" pointerEvents="none"
+                    />
+                    {[
+                      { cx: shape.x, cy: shape.y, handle: "nw", cursor: "nw-resize" },
+                      { cx: shape.x + shape.width, cy: shape.y, handle: "ne", cursor: "ne-resize" },
+                      { cx: shape.x, cy: shape.y + shape.height, handle: "sw", cursor: "sw-resize" },
+                      { cx: shape.x + shape.width, cy: shape.y + shape.height, handle: "se", cursor: "se-resize" },
+                    ].map(({ cx, cy, handle, cursor }) => (
+                      <rect
+                        key={handle}
+                        x={cx - 4} y={cy - 4} width={8} height={8}
+                        fill="white" stroke="#3b82f6" strokeWidth={1.5} rx={1}
+                        style={{ pointerEvents: isOwner ? "auto" : "none", cursor }}
+                        onMouseDown={(e) => handleShapeResizeStart(e, shape, handle)}
+                      />
+                    ))}
+                    {/* X-Button zum Löschen */}
+                    {(isOwner || isAdmin) && (
+                      <g
+                        style={{ pointerEvents: "auto", cursor: "pointer" }}
+                        onClick={(e) => { e.stopPropagation(); handleDeleteShape(shape.id); }}
+                      >
+                        <circle cx={shape.x + shape.width + 8} cy={shape.y - 8} r={8}
+                          fill="#ef4444" />
+                        <text x={shape.x + shape.width + 8} y={shape.y - 4}
+                          textAnchor="middle" fill="white" fontSize={11} fontWeight={700}>
+                          ×
+                        </text>
+                      </g>
+                    )}
+                  </>
+                )}
+                {isSelected && shape.type === "arrow" && (
+                  <>
+                    <circle cx={shape.x} cy={shape.y} r={5}
+                      fill="white" stroke="#3b82f6" strokeWidth={1.5}
+                      style={{ pointerEvents: isOwner ? "auto" : "none", cursor: "crosshair" }}
+                      onMouseDown={(e) => handleShapeResizeStart(e, shape, "start")}
+                    />
+                    <circle
+                      cx={shape.x + shape.width} cy={shape.y + shape.height} r={5}
+                      fill="white" stroke="#3b82f6" strokeWidth={1.5}
+                      style={{ pointerEvents: isOwner ? "auto" : "none", cursor: "crosshair" }}
+                      onMouseDown={(e) => handleShapeResizeStart(e, shape, "end")}
+                    />
+                    {(isOwner || isAdmin) && (
+                      <g
+                        style={{ pointerEvents: "auto", cursor: "pointer" }}
+                        onClick={(e) => { e.stopPropagation(); handleDeleteShape(shape.id); }}
+                      >
+                        <circle
+                          cx={(shape.x + shape.x + shape.width) / 2}
+                          cy={(shape.y + shape.y + shape.height) / 2 - 16}
+                          r={8} fill="#ef4444"
+                        />
+                        <text
+                          x={(shape.x + shape.x + shape.width) / 2}
+                          y={(shape.y + shape.y + shape.height) / 2 - 12}
+                          textAnchor="middle" fill="white" fontSize={11} fontWeight={700}>
+                          ×
+                        </text>
+                      </g>
+                    )}
+                  </>
+                )}
+              </g>
+            );
+          })}
+
+          {/* Drawing-Vorschau */}
+          {drawingShape && currentUserColor && (() => {
+            const c = SWATCH[currentUserColor] ?? SWATCH.yellow;
+            const { tool, startX, startY, currentX, currentY } = drawingShape;
+
+            if (tool === "rect") {
+              const x = Math.min(startX, currentX);
+              const y = Math.min(startY, currentY);
+              const w = Math.abs(currentX - startX);
+              const h = Math.abs(currentY - startY);
+              return <rect x={x} y={y} width={w} height={h} fill="none" stroke={c.bg} strokeWidth={2.5} strokeDasharray="5 3" rx={4} pointerEvents="none" />;
+            }
+            if (tool === "circle") {
+              const cx = (startX + currentX) / 2;
+              const cy = (startY + currentY) / 2;
+              const rx = Math.abs(currentX - startX) / 2;
+              const ry = Math.abs(currentY - startY) / 2;
+              return <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke={c.bg} strokeWidth={2.5} strokeDasharray="5 3" pointerEvents="none" />;
+            }
+            if (tool === "arrow") {
+              return (
+                <>
+                  <line x1={startX} y1={startY} x2={currentX} y2={currentY} stroke={c.bg} strokeWidth={2} strokeDasharray="5 3" pointerEvents="none" />
+                  <polygon points={arrowHeadPoints(startX, startY, currentX, currentY)} fill={c.bg} opacity={0.5} pointerEvents="none" />
+                </>
+              );
+            }
+            return null;
+          })()}
+        </svg>
+
+        {/* ── Notes ──────────────────────────────────────────────────────── */}
         {notes.map((note) => {
           const isOwner = note.userId === userId;
           const canDelete = isOwner || isAdmin;
@@ -782,7 +1336,7 @@ export default function Board({
           );
         })}
 
-        {notes.length === 0 && (
+        {notes.length === 0 && shapes.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
             <div className="text-center">
               <p className="text-sm font-medium text-gray-400">Das Board ist leer</p>

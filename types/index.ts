@@ -17,6 +17,24 @@ export interface Note extends NoteData {
   createdAt: string;
 }
 
+export interface ShapeData {
+  type: "rect" | "circle" | "arrow";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  filled: boolean;
+  strokeWidth: number;
+  userId: string;
+}
+
+export interface Shape extends ShapeData {
+  id: string;
+  boardId: string;
+  createdAt: string;
+}
+
 export interface UserData {
   email: string;
   displayName: string;
@@ -76,4 +94,8 @@ export type BoardEvent =
   | { type: "presence:update"; users: OnlineUser[] }
   | { type: "cursor_moved"; userId: string; displayName: string; color: string; x: number; y: number }
   | { type: "cursor_hidden"; userId: string }
-  | { type: "user_updated"; userId: string; displayName: string; color: string };
+  | { type: "user_updated"; userId: string; displayName: string; color: string }
+  | { type: "shape:created"; shape: Shape }
+  | { type: "shape:moved"; shapeId: string; x: number; y: number; byUserId: string }
+  | { type: "shape:resized"; shapeId: string; x: number; y: number; width: number; height: number; byUserId: string }
+  | { type: "shape:deleted"; shapeId: string; byUserId: string };

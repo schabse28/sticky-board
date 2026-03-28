@@ -24,10 +24,10 @@
 import Redis from "ioredis";
 import { v4 as uuidv4 } from "uuid";
 import bcrypt from "bcryptjs";
-import type { NoteData, Note, UserData, User, UserPublic, OnlineUser, BoardEvent, BoardMeta, BoardPublic } from "@/types";
+import type { NoteData, Note, UserData, User, UserPublic, OnlineUser, BoardEvent, BoardMeta, BoardPublic, ShapeData, Shape } from "@/types";
 
 // Typen re-exportieren damit bestehende Imports von "@/lib/redis" weiterhin funktionieren
-export type { NoteData, Note, UserData, User, UserPublic, OnlineUser, BoardEvent, BoardMeta, BoardPublic } from "@/types";
+export type { NoteData, Note, UserData, User, UserPublic, OnlineUser, BoardEvent, BoardMeta, BoardPublic, ShapeData, Shape } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Umgebungsvariablen-Validierung
@@ -117,6 +117,8 @@ const keys = {
   userByUsername: (username: string) => `username:${username}`, // Legacy – nur für Migration/Cleanup
   allUsers: "users:all",
   userLastSeen: (userId: string) => `user:${userId}:lastSeen`,
+  shape: (shapeId: string) => `shape:${shapeId}`,
+  boardShapes: (boardId: string) => `board:${boardId}:shapes`,
 };
 
 // ---------------------------------------------------------------------------
@@ -285,6 +287,82 @@ export async function deleteNote(noteId: string): Promise<string | null> {
   }
   await pipeline.exec();
 
+  return boardId ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Shapes (Formen)
+// ---------------------------------------------------------------------------
+
+export async function createShape(boardId: string, data: ShapeData): Promise<Shape> {
+  const id = uuidv4();
+  const createdAt = new Date().toISOString();
+  const shape: Shape = { id, boardId, createdAt, ...data };
+
+  const boardTTL = await redis.ttl(keys.boardMeta(boardId));
+
+  const pipeline = redis.pipeline();
+  pipeline.hset(keys.shape(id), {
+    id, boardId, createdAt,
+    type: data.type,
+    x: String(data.x), y: String(data.y),
+    width: String(data.width), height: String(data.height),
+    color: data.color, filled: data.filled ? "1" : "0",
+    strokeWidth: String(data.strokeWidth),
+    userId: data.userId,
+  });
+  pipeline.sadd(keys.boardShapes(boardId), id);
+  if (boardTTL > 0) pipeline.expire(keys.shape(id), boardTTL);
+  await pipeline.exec();
+
+  return shape;
+}
+
+export async function getShapesByBoard(boardId: string): Promise<Shape[]> {
+  const shapeIds = await redis.smembers(keys.boardShapes(boardId));
+  if (shapeIds.length === 0) return [];
+
+  const pipeline = redis.pipeline();
+  for (const id of shapeIds) pipeline.hgetall(keys.shape(id));
+  const results = await pipeline.exec();
+  if (!results) return [];
+
+  const shapes: Shape[] = [];
+  for (const [err, data] of results) {
+    if (err || !data || typeof data !== "object") continue;
+    const h = data as Record<string, string>;
+    if (!h.id) continue;
+    shapes.push({
+      id: h.id, boardId: h.boardId, createdAt: h.createdAt,
+      type: h.type as "rect" | "circle" | "arrow",
+      x: Number(h.x), y: Number(h.y),
+      width: Number(h.width), height: Number(h.height),
+      color: h.color, filled: h.filled === "1",
+      strokeWidth: h.strokeWidth ? Number(h.strokeWidth) : 2,
+      userId: h.userId,
+    });
+  }
+  return shapes;
+}
+
+export async function updateShapePosition(shapeId: string, x: number, y: number): Promise<void> {
+  await redis.hset(keys.shape(shapeId), { x: String(x), y: String(y) });
+}
+
+export async function updateShapeSize(
+  shapeId: string, x: number, y: number, width: number, height: number
+): Promise<void> {
+  await redis.hset(keys.shape(shapeId), {
+    x: String(x), y: String(y), width: String(width), height: String(height),
+  });
+}
+
+export async function deleteShape(shapeId: string): Promise<string | null> {
+  const boardId = await redis.hget(keys.shape(shapeId), "boardId");
+  const pipeline = redis.pipeline();
+  pipeline.del(keys.shape(shapeId));
+  if (boardId) pipeline.srem(keys.boardShapes(boardId), shapeId);
+  await pipeline.exec();
   return boardId ?? null;
 }
 
@@ -718,12 +796,15 @@ export async function cleanupExpiredBoards(): Promise<number> {
 
   // Abgelaufene Boards vollständig aus Redis entfernen
   for (const id of expiredIds) {
-    const noteIds = await redis.smembers(keys.boardNotes(id));
+    const [noteIds, shapeIds] = await Promise.all([
+      redis.smembers(keys.boardNotes(id)),
+      redis.smembers(keys.boardShapes(id)),
+    ]);
     const cleanPipeline = redis.pipeline();
-    for (const noteId of noteIds) {
-      cleanPipeline.del(keys.note(noteId));
-    }
+    for (const noteId of noteIds) cleanPipeline.del(keys.note(noteId));
+    for (const shapeId of shapeIds) cleanPipeline.del(keys.shape(shapeId));
     cleanPipeline.del(keys.boardNotes(id));
+    cleanPipeline.del(keys.boardShapes(id));
     cleanPipeline.del(keys.boardOnline(id));
     cleanPipeline.srem(keys.allBoards, id);
     await cleanPipeline.exec();
@@ -806,12 +887,15 @@ export async function getAllBoards(): Promise<BoardPublic[]> {
  * Pipeline löscht: alle Note-Hashes, das Notes-Set, das Online-Set und den Meta-Hash.
  */
 export async function deleteBoard(boardId: string): Promise<void> {
-  const noteIds = await redis.smembers(keys.boardNotes(boardId));
+  const [noteIds, shapeIds] = await Promise.all([
+    redis.smembers(keys.boardNotes(boardId)),
+    redis.smembers(keys.boardShapes(boardId)),
+  ]);
   const pipeline = redis.pipeline();
-  for (const noteId of noteIds) {
-    pipeline.del(keys.note(noteId));
-  }
+  for (const noteId of noteIds) pipeline.del(keys.note(noteId));
+  for (const shapeId of shapeIds) pipeline.del(keys.shape(shapeId));
   pipeline.del(keys.boardNotes(boardId));
+  pipeline.del(keys.boardShapes(boardId));
   pipeline.del(keys.boardMeta(boardId));
   pipeline.del(keys.boardOnline(boardId));
   pipeline.srem(keys.allBoards, boardId);

@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
-import { getNotesByBoard, getUserColor, getBoard, getBoardTTL } from "@/lib/redis";
+import { getNotesByBoard, getShapesByBoard, getUserColor, getBoard, getBoardTTL } from "@/lib/redis";
 import Board from "../Board";
 
 export default async function BoardPage({
@@ -14,9 +14,10 @@ export default async function BoardPage({
 
   const { boardId } = params;
 
-  const [board, notes, userColor, boardTtl] = await Promise.all([
+  const [board, notes, shapes, userColor, boardTtl] = await Promise.all([
     getBoard(boardId),
     getNotesByBoard(boardId),
+    getShapesByBoard(boardId),
     getUserColor(session.user.id),
     getBoardTTL(boardId),
   ]);
@@ -26,6 +27,7 @@ export default async function BoardPage({
   return (
     <Board
       initialNotes={notes}
+      initialShapes={shapes}
       boardId={boardId}
       boardName={board.name}
       username={session.user.name ?? "Unbekannt"}
