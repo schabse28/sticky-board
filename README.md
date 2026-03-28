@@ -25,8 +25,18 @@ Ein kollaboratives Echtzeit-Whiteboard mit Sticky Notes. Mehrere Nutzer können 
 
 ## Voraussetzungen
 
-- [Node.js](https://nodejs.org/) v18 oder neuer
+- **[Node.js](https://nodejs.org/) v20 LTS** (v20.x erforderlich, v22+ wird nicht unterstützt)
 - [Docker](https://www.docker.com/) und Docker Compose (für Redis)
+
+> **Wichtig:** Next.js 14 ist nicht kompatibel mit Node.js v23+. Der Build schlägt mit "Unexpected end of JSON input" fehl. Bitte Node.js v20 LTS verwenden.
+
+Falls [nvm](https://github.com/nvm-sh/nvm) installiert ist:
+
+```bash
+nvm install 20 && nvm use 20
+```
+
+Das Projekt enthält eine `.nvmrc`-Datei — `nvm use` ohne Argument reicht im Projektverzeichnis.
 
 ## Installation
 

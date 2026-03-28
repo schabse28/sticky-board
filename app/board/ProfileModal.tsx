@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 
 const SWATCH: Record<string, { bg: string; text: string }> = {
   yellow: { bg: "#fde047", text: "#713f12" },
@@ -29,6 +29,10 @@ export default function ProfileModal({
   const [color, setColor] = useState(currentColor);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -141,6 +145,80 @@ export default function ProfileModal({
             </button>
           </div>
         </form>
+
+        {/* ── Account löschen ─────────────────────────────────────── */}
+        <div className="mt-6 pt-5 border-t border-gray-100">
+          {!showDeleteConfirm ? (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="w-full flex items-center justify-center gap-1.5 text-xs text-red-500 hover:text-red-600 hover:bg-red-50 py-2 rounded-xl transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              Account löschen
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-red-600 font-medium">
+                Account wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.
+              </p>
+              <p className="text-[11px] text-gray-500">
+                Alle deine Notes und Daten werden unwiderruflich gelöscht.
+              </p>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => { setDeletePassword(e.target.value); setDeleteError(""); }}
+                placeholder="Passwort zur Bestätigung"
+                autoComplete="current-password"
+                className="w-full border border-red-200 rounded-xl px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent"
+              />
+              {deleteError && <p className="text-xs text-red-500">{deleteError}</p>}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteConfirm(false); setDeletePassword(""); setDeleteError(""); }}
+                  disabled={isDeleting}
+                  className="flex-1 text-sm text-slate-500 hover:text-slate-700 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting || !deletePassword}
+                  onClick={async () => {
+                    setIsDeleting(true);
+                    setDeleteError("");
+                    try {
+                      const res = await fetch("/api/user/account", {
+                        method: "DELETE",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ password: deletePassword }),
+                      });
+                      if (!res.ok) {
+                        const data = await res.json();
+                        setDeleteError(data.error ?? "Fehler beim Löschen");
+                        return;
+                      }
+                      await signOut({ callbackUrl: "/login?deleted=1" });
+                    } catch {
+                      setDeleteError("Netzwerkfehler – bitte erneut versuchen");
+                    } finally {
+                      setIsDeleting(false);
+                    }
+                  }}
+                  className="flex-1 text-sm bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white py-2 rounded-xl transition-colors font-medium"
+                >
+                  {isDeleting ? "Wird gelöscht…" : "Endgültig löschen"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

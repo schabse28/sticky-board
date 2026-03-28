@@ -162,6 +162,7 @@ export default function Board({
   const resizeRef = useRef<ResizeState | null>(null);
   const notesRef = useRef<BoardNote[]>(notes);
   const editingIdRef = useRef<string | null>(null);
+  const pendingEditRef = useRef<string | null>(null);
   const lastCursorSentRef = useRef<number>(0);
   const undoStackRef = useRef<UndoAction[]>([]);
   const drawingRef = useRef<DrawingState | null>(null);
@@ -217,6 +218,11 @@ export default function Board({
             const maxZ = Math.max(...prev.map((n) => n.zIndex), 0);
             return [...prev, { ...event.note, zIndex: maxZ + 1 }];
           });
+          // Pending Edit: Note wurde lokal erstellt und wartet auf SSE-Bestätigung
+          if (pendingEditRef.current === event.note.id) {
+            pendingEditRef.current = null;
+            setEditingId(event.note.id);
+          }
           break;
 
         case "note:position_updated":
@@ -621,9 +627,14 @@ export default function Board({
 
       const note: Note = await res.json();
       const maxZ = Math.max(...notesRef.current.map((n) => n.zIndex), 0);
-      setNotes((prev) => [...prev, { ...note, zIndex: maxZ + 1 }]);
+      setNotes((prev) =>
+        prev.some((n) => n.id === note.id) ? prev : [...prev, { ...note, zIndex: maxZ + 1 }]
+      );
       pushUndo({ type: "note_created", noteId: note.id });
-      setEditingId(note.id);
+      // Edit-Modus sofort setzen — setTimeout(0) damit React den setNotes-Update
+      // verarbeitet und die StickyNote gemountet ist bevor isEditing greift.
+      pendingEditRef.current = note.id;
+      setTimeout(() => setEditingId(note.id), 0);
     } catch (error) {
       console.error("Fehler beim Erstellen der Note:", error);
     } finally {
@@ -1321,6 +1332,7 @@ export default function Board({
               width={note.width}
               height={note.height}
               createdAt={note.createdAt}
+              createdByName={note.createdByName}
               isEditing={editingId === note.id}
               isDeleting={deletingIds.has(note.id)}
               isOwner={isOwner}

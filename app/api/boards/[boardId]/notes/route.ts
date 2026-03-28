@@ -62,6 +62,7 @@ export async function POST(
       posX: Number(posX),
       posY: Number(posY),
       userId: session.user.id,
+      createdByName: session.user.name ?? "Unbekannt",
     });
 
     await publishBoardEvent(boardId, { type: "note:created", note });

@@ -10,6 +10,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered") === "1";
+  const deleted = searchParams.get("deleted") === "1";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -58,6 +59,12 @@ function LoginForm() {
       {registered && !error && (
         <p className="mb-4 text-xs text-emerald-600 px-1">
           Konto erstellt – bitte melde dich an.
+        </p>
+      )}
+
+      {deleted && !error && (
+        <p className="mb-4 text-xs text-slate-500 px-1">
+          Account erfolgreich gelöscht.
         </p>
       )}
 

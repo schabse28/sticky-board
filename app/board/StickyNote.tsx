@@ -40,6 +40,7 @@ export interface StickyNoteProps {
   width?: number;
   height?: number;
   createdAt: string;
+  createdByName?: string;
   isEditing: boolean;
   isDeleting?: boolean;
   isOwner?: boolean;
@@ -62,6 +63,7 @@ export default function StickyNote({
   width = NOTE_DEFAULT_W,
   height = NOTE_DEFAULT_H,
   createdAt,
+  createdByName,
   isEditing,
   isDeleting = false,
   isOwner = true,
@@ -78,12 +80,31 @@ export default function StickyNote({
   const c = COLORS[color] ?? COLORS.yellow;
 
   // Textarea fokussieren wenn Edit-Modus startet
+  // Mehrere Fallbacks wegen Race Condition: beim Erstellen einer neuen Note
+  // werden setNotes und setEditingId im selben Batch aufgerufen — die Textarea
+  // existiert beim ersten useEffect-Lauf möglicherweise noch nicht im DOM.
   useEffect(() => {
-    if (isEditing) {
-      textareaRef.current?.focus();
-      const len = textareaRef.current?.value.length ?? 0;
-      textareaRef.current?.setSelectionRange(len, len);
-    }
+    if (!isEditing) return;
+
+    const focus = () => {
+      if (!textareaRef.current) return;
+      textareaRef.current.focus();
+      const len = textareaRef.current.value.length;
+      textareaRef.current.setSelectionRange(len, len);
+    };
+
+    // Sofort versuchen (funktioniert bei Doppelklick auf bestehende Note)
+    focus();
+    // rAF-Fallback (nach React-Commit, vor Paint)
+    const raf = requestAnimationFrame(focus);
+    // setTimeout-Fallback (nach Paint — deckt den Fall ab, dass die Textarea
+    // erst im nächsten Render-Zyklus gemountet wird)
+    const timer = setTimeout(focus, 50);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
   }, [isEditing]);
 
   // Text von außen synchronisieren (nicht während eigener Bearbeitung)
@@ -174,6 +195,7 @@ export default function StickyNote({
             className="absolute inset-0 p-3 resize-none bg-transparent outline-none text-sm leading-relaxed w-full"
             style={{ color: c.text }}
             placeholder="Text eingeben…"
+            autoFocus
           />
         ) : (
           <div className="absolute inset-0 p-3 overflow-y-auto">
@@ -193,7 +215,13 @@ export default function StickyNote({
           </div>
         )}
 
-        {/* Timestamp – unten rechts im Inhaltsbereich */}
+        {/* Ersteller + Timestamp – unten im Inhaltsbereich */}
+        <div
+          className="absolute bottom-1.5 left-2.5 text-[10px] leading-none pointer-events-none select-none truncate"
+          style={{ color: c.text, opacity: 0.28, maxWidth: "60%" }}
+        >
+          {isOwner ? "Du" : (createdByName ?? "")}
+        </div>
         <div
           className="absolute bottom-1.5 right-2.5 text-[10px] leading-none pointer-events-none select-none"
           style={{ color: c.text, opacity: 0.28 }}

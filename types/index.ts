@@ -9,6 +9,7 @@ export interface NoteData {
   userId: string;
   width?: number;   // px, default 208 (w-52)
   height?: number;  // px, default 176
+  createdByName?: string;
 }
 
 export interface Note extends NoteData {

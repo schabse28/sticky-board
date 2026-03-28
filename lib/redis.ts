@@ -158,6 +158,7 @@ export async function createNote(boardId: string, noteData: NoteData): Promise<N
     createdAt,
     width: String(note.width ?? 208),
     height: String(note.height ?? 176),
+    ...(note.createdByName ? { createdByName: note.createdByName } : {}),
   };
 
   // TTL des Boards prüfen – temporäre Boards vererben ihre TTL auf Notes
@@ -217,6 +218,7 @@ export async function getNotesByBoard(boardId: string): Promise<Note[]> {
       createdAt: hash.createdAt,
       width: hash.width ? Number(hash.width) : undefined,
       height: hash.height ? Number(hash.height) : undefined,
+      createdByName: hash.createdByName || undefined,
     });
   }
 
@@ -990,4 +992,77 @@ export async function deleteUser(userId: string): Promise<void> {
   pipeline.del(keys.userLastSeen(userId));
   pipeline.hdel("online:users", userId);
   await pipeline.exec();
+}
+
+/**
+ * Löscht einen Nutzer-Account vollständig inkl. aller Notes und Shapes.
+ * Wird vom Nutzer selbst ausgelöst (Account löschen im Profil).
+ */
+export async function deleteUserAccount(userId: string): Promise<void> {
+  // 1. Alle Notes und Shapes des Nutzers auf allen Boards finden und löschen
+  const boardIds = await redis.smembers(keys.allBoards);
+
+  if (boardIds.length > 0) {
+    // Alle Note-IDs und Shape-IDs aller Boards laden
+    const idPipeline = redis.pipeline();
+    for (const boardId of boardIds) {
+      idPipeline.smembers(keys.boardNotes(boardId));
+      idPipeline.smembers(keys.boardShapes(boardId));
+    }
+    const idResults = await idPipeline.exec();
+
+    if (idResults) {
+      const allNoteIds: { noteId: string; boardId: string }[] = [];
+      const allShapeIds: { shapeId: string; boardId: string }[] = [];
+
+      for (let i = 0; i < boardIds.length; i++) {
+        const [noteErr, noteIds] = idResults[i * 2];
+        const [shapeErr, shapeIds] = idResults[i * 2 + 1];
+        if (!noteErr && Array.isArray(noteIds)) {
+          for (const noteId of noteIds as string[]) {
+            allNoteIds.push({ noteId, boardId: boardIds[i] });
+          }
+        }
+        if (!shapeErr && Array.isArray(shapeIds)) {
+          for (const shapeId of shapeIds as string[]) {
+            allShapeIds.push({ shapeId, boardId: boardIds[i] });
+          }
+        }
+      }
+
+      // userId jeder Note/Shape prüfen
+      const ownerPipeline = redis.pipeline();
+      for (const { noteId } of allNoteIds) {
+        ownerPipeline.hget(keys.note(noteId), "userId");
+      }
+      for (const { shapeId } of allShapeIds) {
+        ownerPipeline.hget(keys.shape(shapeId), "userId");
+      }
+      const ownerResults = await ownerPipeline.exec();
+
+      if (ownerResults) {
+        const deletePipeline = redis.pipeline();
+        // Notes löschen
+        for (let i = 0; i < allNoteIds.length; i++) {
+          const [err, ownerId] = ownerResults[i];
+          if (!err && ownerId === userId) {
+            deletePipeline.del(keys.note(allNoteIds[i].noteId));
+            deletePipeline.srem(keys.boardNotes(allNoteIds[i].boardId), allNoteIds[i].noteId);
+          }
+        }
+        // Shapes löschen
+        for (let i = 0; i < allShapeIds.length; i++) {
+          const [err, ownerId] = ownerResults[allNoteIds.length + i];
+          if (!err && ownerId === userId) {
+            deletePipeline.del(keys.shape(allShapeIds[i].shapeId));
+            deletePipeline.srem(keys.boardShapes(allShapeIds[i].boardId), allShapeIds[i].shapeId);
+          }
+        }
+        await deletePipeline.exec();
+      }
+    }
+  }
+
+  // 2. Nutzer-Daten löschen (User-Hash, E-Mail-Lookup, etc.)
+  await deleteUser(userId);
 }
