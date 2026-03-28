@@ -75,4 +75,5 @@ export type BoardEvent =
   | { type: "note:deleted"; noteId: string; byUserId: string }
   | { type: "presence:update"; users: OnlineUser[] }
   | { type: "cursor_moved"; userId: string; displayName: string; color: string; x: number; y: number }
-  | { type: "cursor_hidden"; userId: string };
+  | { type: "cursor_hidden"; userId: string }
+  | { type: "user_updated"; userId: string; displayName: string; color: string };

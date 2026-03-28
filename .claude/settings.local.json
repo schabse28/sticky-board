@@ -20,7 +20,11 @@
       "Bash(ls:*)",
       "Bash(docker exec:*)",
       "Bash(mkdir -p \"/Users/michaelschaberl/sticky-board/app/api/boards/[boardId]/notes\")",
-      "Bash(mkdir -p \"/Users/michaelschaberl/sticky-board/app/api/admin/boards/[boardId]\")"
+      "Bash(mkdir -p \"/Users/michaelschaberl/sticky-board/app/api/admin/boards/[boardId]\")",
+      "Bash(docker-compose ps:*)",
+      "Bash(gh pr:*)",
+      "Bash(grep -v \"ExperimentalWarning\\\\|CommonJS module\\\\|require\\(\\)\\\\|Use \\\\`node\")",
+      "Bash(node:*)"
     ]
   }
 }

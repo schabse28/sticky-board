@@ -481,6 +481,73 @@ export async function setUserColor(userId: string, color: string): Promise<void>
   await redis.set(`user:${userId}:color`, color);
 }
 
+/**
+ * Aktualisiert displayName und/oder Farbe eines Nutzers.
+ * Bei Farb-Änderung: alle Notes des Nutzers boardübergreifend umfärben.
+ * Aktualisiert auch den Online-Präsenz-Eintrag falls der Nutzer online ist.
+ */
+export async function updateUserProfile(
+  userId: string,
+  { displayName, color }: { displayName?: string; color?: string }
+): Promise<void> {
+  const pipeline = redis.pipeline();
+
+  if (displayName) {
+    pipeline.hset(keys.user(userId), { displayName });
+  }
+  if (color) {
+    pipeline.set(`user:${userId}:color`, color);
+  }
+  await pipeline.exec();
+
+  // Online-Präsenz aktualisieren falls Nutzer gerade online ist
+  const onlineEntry = await redis.hget("online:users", userId);
+  if (onlineEntry) {
+    const current = JSON.parse(onlineEntry) as { name: string; color: string };
+    await redis.hset("online:users", userId, JSON.stringify({
+      name: displayName ?? current.name,
+      color: color ?? current.color,
+    }));
+  }
+
+  // Bei Farb-Änderung: alle Notes des Nutzers boardübergreifend umfärben
+  if (color) {
+    const boardIds = await redis.smembers(keys.allBoards);
+    if (boardIds.length === 0) return;
+
+    const noteSetPipeline = redis.pipeline();
+    for (const boardId of boardIds) {
+      noteSetPipeline.smembers(keys.boardNotes(boardId));
+    }
+    const noteSetResults = await noteSetPipeline.exec();
+    if (!noteSetResults) return;
+
+    const allNoteIds: string[] = [];
+    for (const [err, noteIds] of noteSetResults) {
+      if (err || !Array.isArray(noteIds)) continue;
+      allNoteIds.push(...(noteIds as string[]));
+    }
+    if (allNoteIds.length === 0) return;
+
+    const userIdPipeline = redis.pipeline();
+    for (const noteId of allNoteIds) {
+      userIdPipeline.hget(keys.note(noteId), "userId");
+    }
+    const userIdResults = await userIdPipeline.exec();
+    if (!userIdResults) return;
+
+    const colorPipeline = redis.pipeline();
+    let hasUpdates = false;
+    for (let i = 0; i < allNoteIds.length; i++) {
+      const [err, noteUserId] = userIdResults[i];
+      if (err || noteUserId !== userId) continue;
+      colorPipeline.hset(keys.note(allNoteIds[i]), { color });
+      hasUpdates = true;
+    }
+    if (hasUpdates) await colorPipeline.exec();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Online-Präsenz
 // ---------------------------------------------------------------------------

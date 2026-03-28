@@ -36,11 +36,14 @@ export const authOptions: NextAuthOptions = {
   },
 
   callbacks: {
-    // userId und role in den JWT-Token schreiben
-    jwt({ token, user }) {
+    // userId und role in den JWT-Token schreiben; bei update()-Aufruf den Namen aktualisieren
+    jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+      }
+      if (trigger === "update" && (session as { name?: string })?.name) {
+        token.name = (session as { name: string }).name;
       }
       return token;
     },

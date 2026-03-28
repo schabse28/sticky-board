@@ -6,6 +6,7 @@ import type { Note, BoardEvent, OnlineUser } from "@/types";
 import StickyNote from "./StickyNote";
 import SignOutButton from "./SignOutButton";
 import ColorSetup from "./ColorSetup";
+import ProfileModal from "./ProfileModal";
 
 const SWATCH: Record<string, { bg: string; text: string }> = {
   yellow: { bg: "#fde047", text: "#713f12" },
@@ -92,6 +93,7 @@ export default function Board({
   const [notes, setNotes] = useState<BoardNote[]>(() =>
     initialNotes.map((n, i) => ({ ...n, zIndex: i + 1 }))
   );
+  const [displayName, setDisplayName] = useState(username);
   const [currentUserColor, setCurrentUserColor] = useState<string | null>(initialUserColor);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -100,6 +102,7 @@ export default function Board({
   const [cursors, setCursors] = useState<Record<string, CursorState>>({});
   const [isTemporary, setIsTemporary] = useState(boardTtl !== null);
   const [isPersisting, setIsPersisting] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   const dragRef = useRef<DragState | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
@@ -215,6 +218,30 @@ export default function Board({
             delete next[event.userId];
             return next;
           });
+          break;
+
+        case "user_updated":
+          // Eigenes Profil: lokalen State sofort aktualisieren
+          if (event.userId === userId) {
+            if (event.displayName) setDisplayName(event.displayName);
+            if (event.color) setCurrentUserColor(event.color);
+          }
+          // Online-User-Liste aktualisieren
+          setOnlineUsers((prev) =>
+            prev.map((u) =>
+              u.id === event.userId
+                ? { ...u, name: event.displayName || u.name, color: event.color || u.color }
+                : u
+            )
+          );
+          // Notes des geänderten Nutzers umfärben
+          if (event.color) {
+            setNotes((prev) =>
+              prev.map((n) =>
+                n.userId === event.userId ? { ...n, color: event.color } : n
+              )
+            );
+          }
           break;
       }
     };
@@ -570,7 +597,7 @@ export default function Board({
       {/* Farb-Setup-Overlay */}
       {!currentUserColor && (
         <ColorSetup
-          username={username}
+          username={displayName}
           onColorSelected={(color) => setCurrentUserColor(color)}
         />
       )}
@@ -669,17 +696,18 @@ export default function Board({
           </button>
 
           {myColor && (
-            <div
-              title={username}
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold cursor-default select-none"
+            <button
+              onClick={() => setShowProfileModal(true)}
+              title={`${displayName} – Profil bearbeiten`}
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold select-none hover:scale-110 transition-transform"
               style={{
                 backgroundColor: myColor.bg,
                 color: myColor.text,
                 boxShadow: "0 0 0 1.5px #0f172a, 0 0 0 3px " + myColor.bg,
               }}
             >
-              {username.slice(0, 1).toUpperCase()}
-            </div>
+              {displayName.slice(0, 1).toUpperCase()}
+            </button>
           )}
 
           <SignOutButton />
@@ -808,6 +836,22 @@ export default function Board({
           );
         })}
       </div>
+
+      {/* Profil-Modal */}
+      {showProfileModal && currentUserColor && (
+        <ProfileModal
+          currentDisplayName={displayName}
+          currentColor={currentUserColor}
+          onClose={() => setShowProfileModal(false)}
+          onSaved={(newName, newColor) => {
+            setDisplayName(newName);
+            setCurrentUserColor(newColor);
+            setNotes((prev) =>
+              prev.map((n) => (n.userId === userId ? { ...n, color: newColor } : n))
+            );
+          }}
+        />
+      )}
     </div>
   );
 }
