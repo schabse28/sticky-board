@@ -49,6 +49,15 @@ interface CursorState {
   lastUpdate: number;
 }
 
+type UndoAction =
+  | { type: "note_created"; noteId: string }
+  | { type: "note_moved"; noteId: string; oldPosX: number; oldPosY: number }
+  | { type: "note_deleted"; noteData: Note }
+  | { type: "note_resized"; noteId: string; oldWidth: number; oldHeight: number }
+  | { type: "note_text_changed"; noteId: string; oldText: string };
+
+const UNDO_LIMIT = 10;
+
 interface BoardProps {
   initialNotes: Note[];
   boardId: string;
@@ -85,6 +94,14 @@ export default function Board({
   const notesRef = useRef<BoardNote[]>(notes);
   const editingIdRef = useRef<string | null>(null);
   const lastCursorSentRef = useRef<number>(0);
+  const undoStackRef = useRef<UndoAction[]>([]);
+  const [undoCount, setUndoCount] = useState(0);
+
+  function pushUndo(action: UndoAction) {
+    undoStackRef.current.push(action);
+    if (undoStackRef.current.length > UNDO_LIMIT) undoStackRef.current.shift();
+    setUndoCount(undoStackRef.current.length);
+  }
 
   useEffect(() => { notesRef.current = notes; }, [notes]);
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
@@ -238,6 +255,11 @@ export default function Board({
         dragRef.current = null;
         const note = notesRef.current.find((n) => n.id === d.noteId);
         if (note) {
+          // Undo-Eintrag nur wenn sich die Position geändert hat
+          if (Math.round(note.posX) !== Math.round(d.startNoteX) ||
+              Math.round(note.posY) !== Math.round(d.startNoteY)) {
+            pushUndo({ type: "note_moved", noteId: d.noteId, oldPosX: d.startNoteX, oldPosY: d.startNoteY });
+          }
           fetch(`/api/notes/${note.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -256,13 +278,16 @@ export default function Board({
         resizeRef.current = null;
         const note = notesRef.current.find((n) => n.id === r.noteId);
         if (note) {
+          const curW = Math.round(note.width ?? NOTE_DEFAULT_W);
+          const curH = Math.round(note.height ?? NOTE_DEFAULT_H);
+          // Undo-Eintrag nur wenn sich die Größe geändert hat
+          if (curW !== Math.round(r.startWidth) || curH !== Math.round(r.startHeight)) {
+            pushUndo({ type: "note_resized", noteId: r.noteId, oldWidth: r.startWidth, oldHeight: r.startHeight });
+          }
           fetch(`/api/notes/${note.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              width: Math.round(note.width ?? NOTE_DEFAULT_W),
-              height: Math.round(note.height ?? NOTE_DEFAULT_H),
-            }),
+            body: JSON.stringify({ width: curW, height: curH }),
           });
         }
       }
@@ -336,6 +361,7 @@ export default function Board({
       const note: Note = await res.json();
       const maxZ = Math.max(...notesRef.current.map((n) => n.zIndex), 0);
       setNotes((prev) => [...prev, { ...note, zIndex: maxZ + 1 }]);
+      pushUndo({ type: "note_created", noteId: note.id });
       setEditingId(note.id);
     } catch (error) {
       console.error("Fehler beim Erstellen der Note:", error);
@@ -346,6 +372,10 @@ export default function Board({
 
   const handleDelete = useCallback(async (noteId: string, noteOwnerId: string) => {
     if (editingIdRef.current === noteId) setEditingId(null);
+
+    // Note-Daten für Undo sichern bevor sie gelöscht wird
+    const savedNote = notesRef.current.find((n) => n.id === noteId);
+
     setDeletingIds((prev) => new Set(prev).add(noteId));
 
     try {
@@ -357,6 +387,9 @@ export default function Board({
 
       const res = await fetch(url, { method: "DELETE" });
       if (res.ok) {
+        if (savedNote && isOwner) {
+          pushUndo({ type: "note_deleted", noteData: savedNote });
+        }
         setNotes((prev) => prev.filter((n) => n.id !== noteId));
       }
     } catch (error) {
@@ -371,6 +404,10 @@ export default function Board({
   }, [isAdmin, userId]);
 
   const handleTextSave = useCallback(async (noteId: string, text: string) => {
+    const oldNote = notesRef.current.find((n) => n.id === noteId);
+    if (oldNote && oldNote.text !== text) {
+      pushUndo({ type: "note_text_changed", noteId, oldText: oldNote.text });
+    }
     setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, text } : n)));
     setEditingId(null);
     await fetch(`/api/notes/${noteId}`, {
@@ -403,6 +440,101 @@ export default function Board({
     if (!currentUserColor) return;
     fetch(`/api/boards/${boardId}/cursors`, { method: "DELETE" }).catch(() => {});
   }, [boardId, currentUserColor]);
+
+  // ── Undo ──────────────────────────────────────────────────────────────────
+
+  const handleUndo = useCallback(async () => {
+    const action = undoStackRef.current.pop();
+    if (!action) return;
+    setUndoCount(undoStackRef.current.length);
+
+    switch (action.type) {
+      case "note_created":
+        setNotes((prev) => prev.filter((n) => n.id !== action.noteId));
+        fetch(`/api/notes/${action.noteId}`, { method: "DELETE" }).catch(() => {});
+        break;
+
+      case "note_moved":
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === action.noteId ? { ...n, posX: action.oldPosX, posY: action.oldPosY } : n
+          )
+        );
+        fetch(`/api/notes/${action.noteId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ posX: action.oldPosX, posY: action.oldPosY }),
+        }).catch(() => {});
+        break;
+
+      case "note_deleted": {
+        const d = action.noteData;
+        const res = await fetch(`/api/boards/${boardId}/notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: d.text, posX: d.posX, posY: d.posY }),
+        });
+        if (res.ok) {
+          const note: Note = await res.json();
+          const maxZ = Math.max(...notesRef.current.map((n) => n.zIndex), 0);
+          setNotes((prev) => [...prev, { ...note, zIndex: maxZ + 1 }]);
+          // Originalmaße wiederherstellen wenn sie vom Standard abweichen
+          if (d.width && d.height && (d.width !== NOTE_DEFAULT_W || d.height !== NOTE_DEFAULT_H)) {
+            fetch(`/api/notes/${note.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ width: d.width, height: d.height }),
+            }).catch(() => {});
+            setNotes((prev) =>
+              prev.map((n) => n.id === note.id ? { ...n, width: d.width, height: d.height } : n)
+            );
+          }
+        }
+        break;
+      }
+
+      case "note_resized":
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === action.noteId
+              ? { ...n, width: action.oldWidth, height: action.oldHeight }
+              : n
+          )
+        );
+        fetch(`/api/notes/${action.noteId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ width: action.oldWidth, height: action.oldHeight }),
+        }).catch(() => {});
+        break;
+
+      case "note_text_changed":
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === action.noteId ? { ...n, text: action.oldText } : n
+          )
+        );
+        fetch(`/api/notes/${action.noteId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: action.oldText }),
+        }).catch(() => {});
+        break;
+    }
+  }, [boardId]);
+
+  // Strg+Z / Cmd+Z Tastenkürzel (nicht während Textbearbeitung)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        if (editingIdRef.current) return; // Textfeld hat eigenes Undo
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleUndo]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -488,6 +620,16 @@ export default function Board({
               Admin
             </Link>
           )}
+
+          <button
+            onClick={handleUndo}
+            disabled={undoCount === 0}
+            title="Rückgängig (Strg+Z)"
+            className="flex items-center gap-1 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed text-xs px-2 py-1.5 rounded-lg hover:bg-white/10 transition-colors"
+          >
+            <span className="text-sm leading-none">↩</span>
+            {undoCount > 0 && <span className="tabular-nums">{undoCount}</span>}
+          </button>
 
           <button
             onClick={() => handleCreate()}
