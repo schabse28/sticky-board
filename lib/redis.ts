@@ -626,6 +626,11 @@ export async function ensureMainBoard(): Promise<void> {
     pipeline.sadd(keys.allBoards, "main");
     await pipeline.exec();
   }
+
+  // Abgelaufene temporäre Boards beim Start bereinigen (nicht-blockierend)
+  cleanupExpiredBoards().catch((err) =>
+    console.error("[sticky-board] Cleanup abgelaufener Boards fehlgeschlagen:", err)
+  );
 }
 
 const BOARD_TTL_SECONDS = 86400; // 24 Stunden
@@ -681,6 +686,50 @@ export async function getBoard(boardId: string): Promise<BoardMeta | null> {
 export async function getBoardTTL(boardId: string): Promise<number | null> {
   const ttl = await redis.ttl(keys.boardMeta(boardId));
   return ttl > 0 ? ttl : null;
+}
+
+/**
+ * Bereinigt abgelaufene temporäre Boards aus Redis.
+ * Prüft alle Einträge in boards:all – fehlt der Meta-Key (Redis TTL abgelaufen),
+ * werden Notes-Set, Online-Set und der boards:all-Eintrag entfernt.
+ * Gibt die Anzahl bereinigter Boards zurück.
+ */
+export async function cleanupExpiredBoards(): Promise<number> {
+  const boardIds = await redis.smembers(keys.allBoards);
+  if (boardIds.length === 0) return 0;
+
+  // Prüfen welche Meta-Keys nicht mehr existieren (Redis TTL abgelaufen)
+  const existsPipeline = redis.pipeline();
+  for (const id of boardIds) {
+    existsPipeline.exists(keys.boardMeta(id));
+  }
+  const existsResults = await existsPipeline.exec();
+  if (!existsResults) return 0;
+
+  const expiredIds: string[] = [];
+  for (let i = 0; i < boardIds.length; i++) {
+    const [err, exists] = existsResults[i];
+    if (!err && exists === 0) {
+      expiredIds.push(boardIds[i]);
+    }
+  }
+
+  if (expiredIds.length === 0) return 0;
+
+  // Abgelaufene Boards vollständig aus Redis entfernen
+  for (const id of expiredIds) {
+    const noteIds = await redis.smembers(keys.boardNotes(id));
+    const cleanPipeline = redis.pipeline();
+    for (const noteId of noteIds) {
+      cleanPipeline.del(keys.note(noteId));
+    }
+    cleanPipeline.del(keys.boardNotes(id));
+    cleanPipeline.del(keys.boardOnline(id));
+    cleanPipeline.srem(keys.allBoards, id);
+    await cleanPipeline.exec();
+  }
+
+  return expiredIds.length;
 }
 
 /** Macht ein temporäres Board dauerhaft (entfernt TTL). */

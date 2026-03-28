@@ -44,6 +44,32 @@ export default function AdminDashboard({
   const [clearingBoardId, setClearingBoardId] = useState<string | null>(null);
   const [deletingUserIds, setDeletingUserIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<"boards" | "users">("boards");
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<string | null>(null);
+
+  // ── Cleanup ───────────────────────────────────────────────────────────────
+
+  async function handleCleanup() {
+    setIsCleaningUp(true);
+    setCleanupResult(null);
+    try {
+      const res = await fetch("/api/admin/cleanup", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json() as { cleaned: number };
+        setCleanupResult(
+          data.cleaned === 0
+            ? "Keine abgelaufenen Sessions gefunden"
+            : `${data.cleaned} abgelaufene Session${data.cleaned === 1 ? "" : "s"} bereinigt`
+        );
+        // Abgelaufene temporäre Boards aus der lokalen Liste entfernen
+        if (data.cleaned > 0) {
+          setBoards((prev) => prev.filter((b) => !b.temporary || b.ttlSeconds !== null));
+        }
+      }
+    } finally {
+      setIsCleaningUp(false);
+    }
+  }
 
   // ── Board-Management ──────────────────────────────────────────────────────
 
@@ -154,8 +180,20 @@ export default function AdminDashboard({
           {/* Boards-Tab */}
           {activeTab === "boards" && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-4">
                 <h2 className="text-sm font-semibold text-slate-700">Alle Boards</h2>
+                <div className="flex items-center gap-3">
+                  {cleanupResult && (
+                    <span className="text-xs text-slate-500">{cleanupResult}</span>
+                  )}
+                  <button
+                    onClick={handleCleanup}
+                    disabled={isCleaningUp}
+                    className="text-xs text-slate-500 hover:text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed border border-gray-200 hover:border-slate-400 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    {isCleaningUp ? "Bereinige…" : "Abgelaufene Sessions bereinigen"}
+                  </button>
+                </div>
               </div>
 
               {boards.length === 0 ? (
