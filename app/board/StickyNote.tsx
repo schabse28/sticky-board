@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { NOTE_DEFAULT_W, NOTE_DEFAULT_H } from "@/types";
 
 const COLORS: Record<string, { bg: string; header: string; border: string; text: string }> = {
   yellow: { bg: "#fefce8", header: "#fde047", border: "#fbbf24", text: "#78350f" },
@@ -9,9 +10,6 @@ const COLORS: Record<string, { bg: string; header: string; border: string; text:
   blue:   { bg: "#eff6ff", header: "#93c5fd", border: "#60a5fa", text: "#1e3a8a" },
   purple: { bg: "#faf5ff", header: "#d8b4fe", border: "#c084fc", text: "#581c87" },
 };
-
-const NOTE_DEFAULT_W = 208;
-const NOTE_DEFAULT_H = 176;
 
 // ── relatives Zeitformat (Deutsch) ────────────────────────────────────────
 

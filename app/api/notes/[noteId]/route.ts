@@ -53,6 +53,9 @@ export async function PATCH(
 
     if (body.text !== undefined) {
       const text = String(body.text);
+      if (text.length > 10_000) {
+        return NextResponse.json({ error: "Text zu lang (max. 10.000 Zeichen)" }, { status: 400 });
+      }
       await redis.hset(`note:${noteId}`, { text });
       await publishBoardEvent(boardId, {
         type: "note:text_updated",

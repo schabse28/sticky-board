@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { createShape, getShapesByBoard, getUserColor, publishBoardEvent } from "@/lib/redis";
+import { createShape, getShapesByBoard, getUserColor, publishBoardEvent, redis } from "@/lib/redis";
 
 export async function GET(
   _request: Request,
@@ -29,6 +29,21 @@ export async function POST(
 
   if (!["rect", "circle", "arrow"].includes(type)) {
     return NextResponse.json({ error: "Ungültiger Shape-Typ" }, { status: 400 });
+  }
+
+  // Rate Limiting: max. 50 Shapes pro Nutzer pro Board
+  const totalShapeIds = await redis.smembers(`board:${params.boardId}:shapes`);
+  if (totalShapeIds.length >= 50) {
+    const p = redis.pipeline();
+    for (const id of totalShapeIds) p.hget(`shape:${id}`, "userId");
+    const results = (await p.exec()) ?? [];
+    const userShapeCount = results.filter(([, uid]) => uid === session.user.id).length;
+    if (userShapeCount >= 50) {
+      return NextResponse.json(
+        { error: "Maximale Anzahl von 50 Shapes pro Board erreicht" },
+        { status: 429 }
+      );
+    }
   }
 
   const color = (await getUserColor(session.user.id)) ?? "yellow";

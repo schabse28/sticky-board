@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { createNote, getNotesByBoard, getBoard, getUserColor, publishBoardEvent } from "@/lib/redis";
+import { createNote, getNotesByBoard, getBoard, getUserColor, publishBoardEvent, redis } from "@/lib/redis";
 
 export async function GET(
   _request: Request,
@@ -53,6 +53,21 @@ export async function POST(
   }
 
   try {
+    // Rate Limiting: max. 50 Notes pro Nutzer pro Board
+    const totalNoteIds = await redis.smembers(`board:${boardId}:notes`);
+    if (totalNoteIds.length >= 50) {
+      const p = redis.pipeline();
+      for (const id of totalNoteIds) p.hget(`note:${id}`, "userId");
+      const results = (await p.exec()) ?? [];
+      const userNoteCount = results.filter(([, uid]) => uid === session.user.id).length;
+      if (userNoteCount >= 50) {
+        return NextResponse.json(
+          { error: "Maximale Anzahl von 50 Notes pro Board erreicht" },
+          { status: 429 }
+        );
+      }
+    }
+
     // Farbe kommt immer aus der festgelegten Nutzerfarbe, nie aus dem Request
     const userColor = (await getUserColor(session.user.id)) ?? "yellow";
 

@@ -1,5 +1,11 @@
-// Zentrale TypeScript-Interfaces für die Sticky Board Webanwendung.
-// Alle anderen Dateien importieren Typen von hier – nie doppelt definieren.
+// Zentrale TypeScript-Interfaces und Konstanten für die Sticky Board Webanwendung.
+// Alle anderen Dateien importieren Typen und Konstanten von hier – nie doppelt definieren.
+
+// ── Note-Größen-Konstanten ────────────────────────────────────────────────────
+export const NOTE_DEFAULT_W = 208;
+export const NOTE_DEFAULT_H = 176;
+export const NOTE_MIN_W = 160;
+export const NOTE_MIN_H = 120;
 
 export interface NoteData {
   text: string;

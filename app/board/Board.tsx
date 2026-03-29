@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import type { Note, Shape, BoardEvent, OnlineUser } from "@/types";
+import { NOTE_DEFAULT_W, NOTE_DEFAULT_H, NOTE_MIN_W, NOTE_MIN_H } from "@/types";
 import StickyNote from "./StickyNote";
 import SignOutButton from "./SignOutButton";
 import ColorSetup from "./ColorSetup";
@@ -15,12 +16,6 @@ const SWATCH: Record<string, { bg: string; text: string }> = {
   blue:   { bg: "#93c5fd", text: "#1e3a8a" },
   purple: { bg: "#d8b4fe", text: "#581c87" },
 };
-
-// Standardmaße einer neuen Note
-const NOTE_DEFAULT_W = 208;
-const NOTE_DEFAULT_H = 176;
-const NOTE_MIN_W = 160;
-const NOTE_MIN_H = 120;
 
 // ── Typen ──────────────────────────────────────────────────────────────────
 
