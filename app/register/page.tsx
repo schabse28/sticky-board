@@ -39,7 +39,6 @@ export default function RegisterPage() {
         return;
       }
 
-      // Nach erfolgreicher Registrierung automatisch einloggen
       const result = await signIn("credentials", {
         email,
         password,
@@ -47,7 +46,6 @@ export default function RegisterPage() {
       });
 
       if (result?.error) {
-        // Registrierung hat geklappt, aber Login schlug fehl – weiterleiten
         router.push("/login?registered=1");
       } else {
         router.push("/board");
@@ -61,25 +59,21 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6">
+    <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center px-6">
 
-      {/* Brand */}
-      <div className="mb-12 text-center">
-        <div className="inline-flex items-center gap-2.5 mb-3">
-          <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-bold tracking-tight">SB</span>
-          </div>
-          <span className="text-xl font-semibold tracking-tight text-gray-900">
-            Sticky Board
-          </span>
+      {/* Logo */}
+      <div className="mb-10 flex flex-col items-center">
+        <div className="w-10 h-10 bg-[#111827] rounded-lg flex items-center justify-center mb-5">
+          <span className="text-white text-sm font-semibold">SB</span>
         </div>
-        <p className="text-sm text-gray-400">Erstelle dein Konto</p>
+        <h1 className="text-2xl font-semibold text-[#111827]">Konto erstellen</h1>
+        <p className="text-sm text-[#6b7280] mt-1.5">Erstelle dein Konto</p>
       </div>
 
       {/* Form */}
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-3">
+      <form onSubmit={handleSubmit} className="w-full max-w-[380px] space-y-5">
         <div>
-          <label className="block text-[11px] tracking-[0.12em] uppercase font-mono text-gray-400 mb-2">
+          <label className="block text-sm font-medium text-[#374151] mb-1.5">
             E-Mail-Adresse
           </label>
           <input
@@ -88,13 +82,13 @@ export default function RegisterPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
             autoComplete="email"
-            className="w-full bg-gray-100 rounded-2xl px-5 py-4 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:bg-gray-200 transition-colors"
+            className="w-full border border-[#e5e7eb] rounded-md px-3 py-2.5 text-sm text-[#111827] placeholder-[#9ca3af] focus:border-[#9ca3af] focus:outline-none transition-colors"
             placeholder="deine@email.de"
           />
         </div>
 
         <div>
-          <label className="block text-[11px] tracking-[0.12em] uppercase font-mono text-gray-400 mb-2">
+          <label className="block text-sm font-medium text-[#374151] mb-1.5">
             Anzeigename
           </label>
           <input
@@ -104,14 +98,14 @@ export default function RegisterPage() {
             required
             minLength={2}
             autoComplete="nickname"
-            className="w-full bg-gray-100 rounded-2xl px-5 py-4 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:bg-gray-200 transition-colors"
+            className="w-full border border-[#e5e7eb] rounded-md px-3 py-2.5 text-sm text-[#111827] placeholder-[#9ca3af] focus:border-[#9ca3af] focus:outline-none transition-colors"
             placeholder="Dein Name auf dem Board"
           />
-          <p className="text-[11px] text-gray-400 mt-1.5 px-1">Wird auf dem Board angezeigt</p>
+          <p className="text-xs text-[#9ca3af] mt-1.5">Wird auf dem Board angezeigt</p>
         </div>
 
         <div>
-          <label className="block text-[11px] tracking-[0.12em] uppercase font-mono text-gray-400 mb-2">
+          <label className="block text-sm font-medium text-[#374151] mb-1.5">
             Passwort
           </label>
           <input
@@ -121,14 +115,14 @@ export default function RegisterPage() {
             required
             minLength={8}
             autoComplete="new-password"
-            className="w-full bg-gray-100 rounded-2xl px-5 py-4 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:bg-gray-200 transition-colors"
+            className="w-full border border-[#e5e7eb] rounded-md px-3 py-2.5 text-sm text-[#111827] placeholder-[#9ca3af] focus:border-[#9ca3af] focus:outline-none transition-colors"
             placeholder="••••••••"
           />
-          <p className="text-[11px] text-gray-400 mt-1.5 px-1">Mindestens 8 Zeichen</p>
+          <p className="text-xs text-[#9ca3af] mt-1.5">Mindestens 8 Zeichen</p>
         </div>
 
         <div>
-          <label className="block text-[11px] tracking-[0.12em] uppercase font-mono text-gray-400 mb-2">
+          <label className="block text-sm font-medium text-[#374151] mb-1.5">
             Passwort bestätigen
           </label>
           <input
@@ -137,31 +131,29 @@ export default function RegisterPage() {
             onChange={(e) => setPasswordConfirm(e.target.value)}
             required
             autoComplete="new-password"
-            className="w-full bg-gray-100 rounded-2xl px-5 py-4 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:bg-gray-200 transition-colors"
+            className="w-full border border-[#e5e7eb] rounded-md px-3 py-2.5 text-sm text-[#111827] placeholder-[#9ca3af] focus:border-[#9ca3af] focus:outline-none transition-colors"
             placeholder="••••••••"
           />
         </div>
 
         {error && (
-          <p className="text-xs text-red-500 px-1 pt-1">{error}</p>
+          <p className="text-sm text-red-500">{error}</p>
         )}
 
-        <div className="pt-2">
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-slate-900 hover:bg-slate-800 active:bg-black disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium py-4 rounded-2xl transition-colors text-sm"
-          >
-            {loading ? "Wird registriert…" : "Konto erstellen"}
-          </button>
-        </div>
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-[#111827] hover:bg-[#1f2937] disabled:bg-[#d1d5db] disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-md transition-colors text-sm"
+        >
+          {loading ? "Wird registriert…" : "Konto erstellen"}
+        </button>
       </form>
 
-      <p className="mt-8 text-xs text-gray-400">
+      <p className="mt-8 text-sm text-[#6b7280]">
         Bereits registriert?{" "}
         <Link
           href="/login"
-          className="text-gray-900 underline underline-offset-2 hover:text-gray-600 transition-colors"
+          className="text-[#111827] underline underline-offset-2 hover:text-[#6b7280] transition-colors"
         >
           Anmelden
         </Link>

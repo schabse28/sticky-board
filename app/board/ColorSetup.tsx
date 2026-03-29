@@ -33,7 +33,6 @@ export default function ColorSetup({ username, onColorSelected }: ColorSetupProp
 
     if (!res.ok) {
       const data = await res.json();
-      // 409 = Farbe bereits gesetzt (Race Condition) → trotzdem fortfahren
       if (res.status === 409 && data.color) {
         onColorSelected(data.color as string);
         return;
@@ -51,16 +50,16 @@ export default function ColorSetup({ username, onColorSelected }: ColorSetupProp
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+      style={{ background: "rgba(0,0,0,0.4)" }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-8">
+      <div className="bg-white rounded-xl border border-[#e5e7eb] shadow-lg w-full max-w-xs p-6">
 
         {/* Header */}
         <div className="mb-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-1">
+          <h2 className="text-lg font-semibold text-[#111827] mb-1">
             Willkommen, {username}
           </h2>
-          <p className="text-xs text-gray-400 leading-relaxed">
+          <p className="text-sm text-[#6b7280] leading-relaxed">
             Wähle deine Note-Farbe. Sie ist dauerhaft und kann nicht geändert werden.
           </p>
         </div>
@@ -79,7 +78,7 @@ export default function ColorSetup({ username, onColorSelected }: ColorSetupProp
                   backgroundColor: c.bg,
                   boxShadow: isSelected
                     ? `0 0 0 2px white, 0 0 0 4px ${c.text}`
-                    : "0 1px 4px rgba(0,0,0,0.12)",
+                    : "0 0 0 1px rgba(0,0,0,0.08)",
                   transform: isSelected ? "scale(1.15)" : "scale(1)",
                 }}
               />
@@ -91,7 +90,7 @@ export default function ColorSetup({ username, onColorSelected }: ColorSetupProp
         <div className="h-5 mb-5 flex items-center">
           {selectedPalette && (
             <span
-              className="text-[11px] font-medium px-2.5 py-0.5 rounded-full"
+              className="text-xs font-medium px-2.5 py-0.5 rounded-full"
               style={{ backgroundColor: selectedPalette.bg, color: selectedPalette.text }}
             >
               {selectedPalette.label} ausgewählt
@@ -100,15 +99,15 @@ export default function ColorSetup({ username, onColorSelected }: ColorSetupProp
         </div>
 
         {error && (
-          <p className="text-xs text-red-500 mb-4">{error}</p>
+          <p className="text-sm text-red-500 mb-4">{error}</p>
         )}
 
         <button
           onClick={handleConfirm}
           disabled={!selected || saving}
-          className="w-full bg-slate-900 hover:bg-slate-800 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 rounded-xl transition-colors text-sm"
+          className="w-full bg-[#111827] hover:bg-[#1f2937] disabled:bg-[#d1d5db] disabled:text-[#9ca3af] disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-md transition-colors text-sm"
         >
-          {saving ? "Wird gespeichert…" : "Loslegen →"}
+          {saving ? "Wird gespeichert…" : "Loslegen"}
         </button>
       </div>
     </div>

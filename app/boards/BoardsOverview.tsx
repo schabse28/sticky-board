@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { BoardPublic, BoardMeta } from "@/types";
 import SignOutButton from "@/app/board/SignOutButton";
 
@@ -87,57 +88,57 @@ export default function BoardsOverview({
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
+    <div className="flex flex-col h-screen overflow-hidden bg-[#fafafa]">
 
       {/* Header */}
-      <header className="flex-shrink-0 h-11 bg-slate-900 flex items-center px-4 gap-4 border-b border-slate-800">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-6 h-6 rounded-md bg-white/10 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-[10px] font-bold tracking-tight">SB</span>
+      <header className="flex-shrink-0 h-[52px] bg-white flex items-center px-5 border-b border-[#e5e7eb]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-[#111827] rounded-md flex items-center justify-center">
+            <span className="text-white text-[11px] font-semibold">SB</span>
           </div>
-          <span className="text-white font-semibold text-sm tracking-tight whitespace-nowrap">
-            Sticky Board
-          </span>
+          <span className="text-[15px] font-medium text-[#111827]">Sticky Board</span>
         </div>
 
         <div className="flex-1" />
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-4">
           {isAdmin && (
-            <a
+            <Link
               href="/admin"
-              className="text-xs text-slate-400 hover:text-white transition-colors px-2 py-1.5 rounded-lg hover:bg-white/10"
+              className="text-sm text-[#6b7280] hover:text-[#111827] transition-colors"
             >
               Admin
-            </a>
+            </Link>
           )}
-          <span className="text-xs text-slate-400 select-none">{username}</span>
+          <span className="text-sm text-[#6b7280]">{username}</span>
           <SignOutButton />
         </div>
       </header>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-5xl mx-auto">
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-8 pt-12 pb-8">
 
-          {/* Heading */}
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-xl font-semibold text-slate-900">Boards</h1>
+          {/* Titel-Bereich */}
+          <div className="flex items-center justify-between mb-2">
+            <h1 className="text-2xl font-semibold text-[#111827]">Meine Boards</h1>
             <button
               onClick={openModal}
-              className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs px-3 py-1.5 rounded-lg transition-colors"
+              className="bg-[#111827] hover:bg-[#1f2937] text-white text-sm font-medium px-4 py-2 rounded-md transition-colors"
             >
-              <span className="text-base leading-none font-semibold">+</span>
-              <span>Neues Board</span>
+              Neues Board
             </button>
           </div>
+          <p className="text-sm text-[#6b7280] mb-8">
+            {boards.length} {boards.length === 1 ? "Board" : "Boards"}
+          </p>
 
           {/* Board-Grid */}
           {boards.length === 0 ? (
             <div className="text-center py-20">
-              <p className="text-sm font-medium text-gray-400">Keine Boards vorhanden</p>
-              <p className="text-xs text-gray-300 mt-1">
-                Klicke auf &bdquo;+ Neues Board&ldquo;, um loszulegen
+              <p className="text-sm text-[#6b7280]">Keine Boards vorhanden</p>
+              <p className="text-sm text-[#9ca3af] mt-1">
+                Erstelle dein erstes Board, um loszulegen.
               </p>
             </div>
           ) : (
@@ -158,30 +159,34 @@ export default function BoardsOverview({
       {/* Create-Modal */}
       {showCreateModal && (
         <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setShowCreateModal(false); }}
         >
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
-            <h2 className="text-base font-semibold text-slate-900 mb-4">Neues Board erstellen</h2>
+          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-[400px] mx-4 border border-[#e5e7eb]">
+            <h2 className="text-lg font-semibold text-[#111827] mb-5">Neues Board erstellen</h2>
             <form onSubmit={handleCreateBoard}>
+              <label className="block text-sm font-medium text-[#374151] mb-1.5">
+                Board-Name
+              </label>
               <input
                 ref={inputRef}
                 type="text"
                 value={newBoardName}
                 onChange={(e) => setNewBoardName(e.target.value)}
-                placeholder="Board-Name…"
+                placeholder="z.B. Sprint Retro"
                 maxLength={60}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
+                className="w-full border border-[#e5e7eb] rounded-md px-3 py-2.5 text-sm text-[#111827] placeholder-[#9ca3af] focus:border-[#9ca3af] focus:outline-none transition-colors"
               />
-              {/* Board-Typ: Dauerhaft oder Temporär */}
-              <div className="flex gap-2 mt-3">
+
+              {/* Board-Typ Toggle */}
+              <div className="flex gap-0 mt-4 bg-[#f3f4f6] rounded-md p-0.5">
                 <button
                   type="button"
                   onClick={() => setIsTemporary(false)}
-                  className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${
+                  className={`flex-1 text-sm py-2 rounded-md transition-colors ${
                     !isTemporary
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-gray-200 text-slate-500 hover:border-slate-400"
+                      ? "bg-[#111827] text-white font-medium"
+                      : "text-[#6b7280] hover:text-[#111827]"
                   }`}
                 >
                   Dauerhaft
@@ -189,30 +194,32 @@ export default function BoardsOverview({
                 <button
                   type="button"
                   onClick={() => setIsTemporary(true)}
-                  className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${
+                  className={`flex-1 text-sm py-2 rounded-md transition-colors ${
                     isTemporary
-                      ? "border-amber-500 bg-amber-50 text-amber-700"
-                      : "border-gray-200 text-slate-500 hover:border-amber-400"
+                      ? "bg-[#111827] text-white font-medium"
+                      : "text-[#6b7280] hover:text-[#111827]"
                   }`}
                 >
                   Temporär (24 Std)
                 </button>
               </div>
+
               {createError && (
-                <p className="mt-2 text-xs text-red-500">{createError}</p>
+                <p className="mt-3 text-sm text-red-500">{createError}</p>
               )}
-              <div className="flex gap-2 mt-4">
+
+              <div className="flex gap-3 mt-6">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 text-sm text-slate-500 hover:text-slate-700 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
+                  className="flex-1 text-sm text-[#6b7280] hover:text-[#111827] py-2.5 rounded-md transition-colors"
                 >
                   Abbrechen
                 </button>
                 <button
                   type="submit"
                   disabled={isCreating || !newBoardName.trim()}
-                  className="flex-1 text-sm bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white py-2 rounded-xl transition-colors font-medium"
+                  className="flex-1 text-sm bg-[#111827] hover:bg-[#1f2937] disabled:bg-[#d1d5db] disabled:cursor-not-allowed text-white py-2.5 rounded-md transition-colors font-medium"
                 >
                   {isCreating ? "Wird erstellt…" : "Erstellen"}
                 </button>
@@ -254,46 +261,51 @@ function BoardCard({
   return (
     <div
       onClick={() => router.push(`/board/${board.id}`)}
-      className="group bg-white rounded-2xl border border-gray-200 p-5 cursor-pointer hover:border-slate-400 hover:shadow-md transition-all"
+      className="group bg-white rounded-lg border border-[#e5e7eb] p-5 cursor-pointer hover:border-[#d1d5db] hover:shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-all"
     >
-      {/* Header der Karte */}
+      {/* Header */}
       <div className="flex items-start justify-between mb-3">
-        <h2 className="font-semibold text-slate-900 text-sm leading-snug truncate pr-2">
+        <h2 className="text-base font-medium text-[#111827] leading-snug truncate pr-2">
           {board.name}
         </h2>
-        {isAdmin && board.id !== "main" && (
-          <button
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className="opacity-0 group-hover:opacity-100 text-xs text-red-400 hover:text-red-600 disabled:opacity-40 transition-all flex-shrink-0"
-            title="Board löschen"
-          >
-            {isDeleting ? "…" : "Löschen"}
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {board.temporary && (
+            <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">
+              Temporär
+            </span>
+          )}
+          {isAdmin && board.id !== "main" && (
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="opacity-0 group-hover:opacity-100 text-xs text-red-500 hover:text-red-600 disabled:opacity-40 transition-all"
+              title="Board löschen"
+            >
+              {isDeleting ? "…" : "Löschen"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}
-      <div className="flex items-center gap-3 text-xs text-slate-400">
-        <span>
-          <span className="font-medium text-slate-600">{board.noteCount}</span> Notes
-        </span>
-        {board.onlineCount > 0 && (
-          <span className="flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span className="font-medium text-emerald-600">{board.onlineCount}</span> online
-          </span>
-        )}
+      <div className="flex items-center gap-3 text-sm text-[#9ca3af]">
+        <span>{board.noteCount} Notes</span>
+        <span>·</span>
+        <span>Erstellt {formatDate(board.createdAt)}</span>
       </div>
 
-      {/* Footer */}
-      {board.ttlSeconds ? (
-        <p className="text-[11px] text-amber-500 mt-3 font-medium">
-          ⏱ Läuft ab in {formatTTL(board.ttlSeconds)}
-        </p>
-      ) : (
-        <p className="text-[11px] text-slate-300 mt-3">
-          Erstellt {formatDate(board.createdAt)}
+      {/* Online-Indikator */}
+      {board.onlineCount > 0 && (
+        <div className="flex items-center gap-1.5 mt-3">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span className="text-xs text-[#6b7280]">{board.onlineCount} online</span>
+        </div>
+      )}
+
+      {/* TTL */}
+      {board.ttlSeconds && (
+        <p className="text-xs text-amber-600 mt-3">
+          Läuft ab in {formatTTL(board.ttlSeconds)}
         </p>
       )}
     </div>

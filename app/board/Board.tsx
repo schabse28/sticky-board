@@ -971,22 +971,23 @@ export default function Board({
         />
       )}
 
-      {/* ── Toolbar ────────────────────────────────────────────────────── */}
-      <header className="flex-shrink-0 h-11 bg-slate-900 flex items-center px-4 gap-4 border-b border-slate-800">
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <header className="flex-shrink-0 h-[52px] bg-white flex items-center px-5 border-b border-[#e5e7eb]">
 
         {/* Logo + Breadcrumb – links */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
           <Link
             href="/boards"
-            className="flex items-center gap-2 group"
+            className="flex items-center gap-2.5 group"
             title="Alle Boards"
           >
-            <div className="w-6 h-6 rounded-md bg-white/10 group-hover:bg-white/20 flex items-center justify-center flex-shrink-0 transition-colors">
-              <span className="text-white text-[10px] font-bold tracking-tight">SB</span>
+            <div className="w-7 h-7 rounded-md bg-[#111827] flex items-center justify-center flex-shrink-0">
+              <span className="text-white text-[11px] font-semibold">SB</span>
             </div>
+            <span className="text-[15px] font-medium text-[#111827]">Sticky Board</span>
           </Link>
-          <span className="text-slate-600 text-sm">/</span>
-          <span className="text-white font-semibold text-sm tracking-tight truncate max-w-[180px]">
+          <span className="text-[#d1d5db] text-sm">/</span>
+          <span className="text-sm font-medium text-[#111827] truncate max-w-[180px]">
             {boardName}
           </span>
         </div>
@@ -994,9 +995,8 @@ export default function Board({
         {/* Online-Nutzer – Mitte */}
         <div className="flex-1 flex items-center justify-center">
           {onlineUsers.length > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
-              <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center -space-x-1">
                 {onlineUsers.slice(0, 8).map((user) => {
                   const c = SWATCH[user.color] ?? SWATCH.yellow;
                   const isMe = user.id === userId;
@@ -1004,13 +1004,13 @@ export default function Board({
                     <div
                       key={user.id}
                       title={`${user.name}${isMe ? " (du)" : ""}`}
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold select-none cursor-default flex-shrink-0"
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold select-none cursor-default flex-shrink-0"
                       style={{
                         backgroundColor: c.bg,
                         color: c.text,
                         boxShadow: isMe
-                          ? `0 0 0 1.5px #0f172a, 0 0 0 3px ${c.bg}`
-                          : "0 0 0 1px rgba(255,255,255,0.12)",
+                          ? `0 0 0 2px white, 0 0 0 3px ${c.bg}`
+                          : "0 0 0 2px white",
                       }}
                     >
                       {user.name.slice(0, 1).toUpperCase()}
@@ -1018,12 +1018,12 @@ export default function Board({
                   );
                 })}
                 {onlineUsers.length > 8 && (
-                  <span className="text-[11px] text-slate-500 ml-0.5">
+                  <span className="text-xs text-[#6b7280] ml-2">
                     +{onlineUsers.length - 8}
                   </span>
                 )}
               </div>
-              <span className="text-[11px] text-slate-500 tabular-nums whitespace-nowrap">
+              <span className="text-sm text-[#6b7280] tabular-nums whitespace-nowrap">
                 {onlineUsers.length} online
               </span>
             </div>
@@ -1031,11 +1031,11 @@ export default function Board({
         </div>
 
         {/* Aktionen – rechts */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-3 flex-shrink-0">
           {isAdmin && (
             <Link
               href="/admin"
-              className="text-xs text-slate-400 hover:text-white transition-colors px-2 py-1.5 rounded-lg hover:bg-white/10"
+              className="text-sm text-[#6b7280] hover:text-[#111827] transition-colors"
             >
               Admin
             </Link>
@@ -1045,14 +1045,14 @@ export default function Board({
             onClick={handleUndo}
             disabled={undoCount === 0}
             title="Rückgängig (Strg+Z)"
-            className="flex items-center gap-1 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed text-xs px-2 py-1.5 rounded-lg hover:bg-white/10 transition-colors"
+            className="flex items-center gap-1 text-[#6b7280] hover:text-[#111827] disabled:opacity-30 disabled:cursor-not-allowed text-sm px-2 py-1.5 rounded-md hover:bg-[#f3f4f6] transition-colors"
           >
             <span className="text-sm leading-none">↩</span>
-            {undoCount > 0 && <span className="tabular-nums">{undoCount}</span>}
+            {undoCount > 0 && <span className="tabular-nums text-xs">{undoCount}</span>}
           </button>
 
           {/* Shape-Tools */}
-          <div className="flex items-center gap-0.5 border-l border-slate-700 pl-2">
+          <div className="flex items-center gap-0.5 border-l border-[#e5e7eb] pl-3">
             {([
               { tool: "rect" as const, icon: "□", title: "Rechteck" },
               { tool: "circle" as const, icon: "○", title: "Kreis" },
@@ -1065,10 +1065,10 @@ export default function Board({
                   setSelectedShapeId(null);
                 }}
                 title={title}
-                className={`w-7 h-7 flex items-center justify-center rounded-md text-sm transition-colors ${
+                className={`w-8 h-8 flex items-center justify-center rounded-md text-sm transition-colors ${
                   activeTool === tool
-                    ? "bg-white text-slate-900"
-                    : "text-slate-400 hover:text-white hover:bg-white/10"
+                    ? "bg-[#111827] text-white"
+                    : "text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6]"
                 }`}
               >
                 {icon}
@@ -1079,47 +1079,43 @@ export default function Board({
           <button
             onClick={() => { setActiveTool(null); handleCreate(); }}
             disabled={!currentUserColor || isCreating}
-            className="flex items-center gap-1.5 bg-white hover:bg-gray-100 active:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed text-slate-900 font-medium text-xs px-3 py-1.5 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 bg-[#111827] hover:bg-[#1f2937] disabled:bg-[#d1d5db] disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2 rounded-md transition-colors"
           >
-            {isCreating ? (
-              <span className="animate-spin inline-block leading-none text-sm">⟳</span>
-            ) : (
-              <span className="text-base leading-none font-semibold">+</span>
-            )}
-            <span>{isCreating ? "Erstellt…" : "Neue Note"}</span>
+            {isCreating ? "Erstellt…" : "Neue Note"}
           </button>
 
           {myColor && (
             <button
               onClick={() => setShowProfileModal(true)}
               title={`${displayName} – Profil bearbeiten`}
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold select-none hover:scale-110 transition-transform"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold select-none hover:scale-110 transition-transform"
               style={{
                 backgroundColor: myColor.bg,
                 color: myColor.text,
-                boxShadow: "0 0 0 1.5px #0f172a, 0 0 0 3px " + myColor.bg,
+                boxShadow: "0 0 0 2px white, 0 0 0 3px " + myColor.bg,
               }}
             >
               {displayName.slice(0, 1).toUpperCase()}
             </button>
           )}
 
+          <span className="text-sm text-[#6b7280]">{displayName}</span>
           <SignOutButton />
         </div>
       </header>
 
       {/* ── Temporäres-Board-Banner ──────────────────────────────────────── */}
       {isTemporary && boardTtl !== null && (
-        <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between gap-4">
-          <span className="text-xs text-amber-700">
-            ⏱ Temporäres Board — wird in <strong>{formatTTL(boardTtl)}</strong> automatisch gelöscht
+        <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-5 py-2.5 flex items-center justify-between gap-4">
+          <span className="text-sm text-amber-700">
+            Temporäres Board — wird in <strong>{formatTTL(boardTtl)}</strong> automatisch gelöscht
           </span>
           <button
             onClick={handlePersistBoard}
             disabled={isPersisting}
-            className="flex-shrink-0 text-xs bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-medium px-3 py-1 rounded-lg transition-colors"
+            className="flex-shrink-0 text-sm bg-[#111827] hover:bg-[#1f2937] disabled:opacity-50 text-white font-medium px-4 py-1.5 rounded-md transition-colors"
           >
-            {isPersisting ? "Wird gespeichert…" : "Session speichern"}
+            {isPersisting ? "Wird gespeichert…" : "Dauerhaft speichern"}
           </button>
         </div>
       )}
@@ -1129,8 +1125,8 @@ export default function Board({
         id="board-canvas"
         className="flex-1 relative overflow-hidden"
         style={{
-          backgroundColor: "#ffffff",
-          backgroundImage: "radial-gradient(circle, #d1d5db 1px, transparent 1px)",
+          backgroundColor: "#fafafa",
+          backgroundImage: "radial-gradient(circle, #e5e7eb 0.75px, transparent 0.75px)",
           backgroundSize: "24px 24px",
           cursor: activeTool ? "crosshair" : undefined,
         }}
