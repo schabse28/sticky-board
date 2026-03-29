@@ -1,14 +1,24 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import type { BoardPublic, BoardMeta } from "@/types";
-import SignOutButton from "@/app/board/SignOutButton";
+
+const SWATCH: Record<string, { bg: string; text: string }> = {
+  yellow: { bg: "#fde047", text: "#713f12" },
+  green:  { bg: "#86efac", text: "#14532d" },
+  pink:   { bg: "#f9a8d4", text: "#831843" },
+  blue:   { bg: "#93c5fd", text: "#1e3a8a" },
+  purple: { bg: "#d8b4fe", text: "#581c87" },
+};
 
 interface BoardsOverviewProps {
   initialBoards: BoardPublic[];
   username: string;
+  userEmail: string;
+  userColor: string;
   userId: string;
   isAdmin: boolean;
 }
@@ -32,6 +42,8 @@ function formatTTL(seconds: number): string {
 export default function BoardsOverview({
   initialBoards,
   username,
+  userEmail,
+  userColor,
   isAdmin,
 }: BoardsOverviewProps) {
   const router = useRouter();
@@ -41,7 +53,20 @@ export default function BoardsOverview({
   const [isTemporary, setIsTemporary] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const avatarMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showAvatarMenu) return;
+    function handleOutside(e: MouseEvent) {
+      if (avatarMenuRef.current && !avatarMenuRef.current.contains(e.target as Node)) {
+        setShowAvatarMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [showAvatarMenu]);
 
   async function handleCreateBoard(e: React.FormEvent) {
     e.preventDefault();
@@ -110,8 +135,42 @@ export default function BoardsOverview({
               Admin
             </Link>
           )}
-          <span className="text-sm text-[#6b7280]">{username}</span>
-          <SignOutButton />
+
+          {/* Avatar + Dropdown */}
+          <div className="relative" ref={avatarMenuRef}>
+            {(() => {
+              const c = SWATCH[userColor] ?? { bg: "#e5e7eb", text: "#6b7280" };
+              return (
+                <button
+                  onClick={() => setShowAvatarMenu((v) => !v)}
+                  title={username}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold select-none hover:scale-105 transition-transform"
+                  style={{
+                    backgroundColor: c.bg,
+                    color: c.text,
+                    boxShadow: "0 0 0 2px white, 0 0 0 3px " + c.bg,
+                  }}
+                >
+                  {username.slice(0, 1).toUpperCase()}
+                </button>
+              );
+            })()}
+
+            {showAvatarMenu && (
+              <div className="absolute top-full right-0 mt-2 w-52 bg-white border border-[#e5e7eb] rounded-lg shadow-lg py-1 z-50">
+                <div className="px-3 py-2.5 border-b border-[#e5e7eb]">
+                  <p className="text-sm font-medium text-[#111827] truncate">{username}</p>
+                  <p className="text-xs text-[#6b7280] truncate">{userEmail}</p>
+                </div>
+                <button
+                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  className="w-full text-left px-3 py-2 text-sm text-[#374151] hover:bg-[#f3f4f6] transition-colors"
+                >
+                  Abmelden
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

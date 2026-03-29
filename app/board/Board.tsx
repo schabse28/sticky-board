@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import type { Note, Shape, BoardEvent, OnlineUser } from "@/types";
 import { NOTE_DEFAULT_W, NOTE_DEFAULT_H, NOTE_MIN_W, NOTE_MIN_H } from "@/types";
 import StickyNote from "./StickyNote";
-import SignOutButton from "./SignOutButton";
 import ColorSetup from "./ColorSetup";
 import ProfileModal from "./ProfileModal";
 
@@ -94,6 +94,7 @@ interface BoardProps {
   boardId: string;
   boardName: string;
   username: string;
+  userEmail: string;
   userId: string;
   initialUserColor: string | null;
   isAdmin: boolean;
@@ -126,6 +127,7 @@ export default function Board({
   boardId,
   boardName,
   username,
+  userEmail,
   userId,
   initialUserColor,
   isAdmin,
@@ -144,6 +146,8 @@ export default function Board({
   const [isTemporary, setIsTemporary] = useState(boardTtl !== null);
   const [isPersisting, setIsPersisting] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showAvatarMenu, setShowAvatarMenu] = useState(false);
+  const avatarMenuRef = useRef<HTMLDivElement>(null);
 
   // Shape-State
   const [shapes, setShapes] = useState<BoardShape[]>(() =>
@@ -956,6 +960,18 @@ export default function Board({
     }
   }
 
+  // Avatar-Dropdown bei Klick außerhalb schließen
+  useEffect(() => {
+    if (!showAvatarMenu) return;
+    function handleOutside(e: MouseEvent) {
+      if (avatarMenuRef.current && !avatarMenuRef.current.contains(e.target as Node)) {
+        setShowAvatarMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [showAvatarMenu]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const myColor = currentUserColor ? SWATCH[currentUserColor] : null;
@@ -1084,23 +1100,44 @@ export default function Board({
             {isCreating ? "Erstellt…" : "Neue Note"}
           </button>
 
+          {/* Avatar + Dropdown */}
           {myColor && (
-            <button
-              onClick={() => setShowProfileModal(true)}
-              title={`${displayName} – Profil bearbeiten`}
-              className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold select-none hover:scale-110 transition-transform"
-              style={{
-                backgroundColor: myColor.bg,
-                color: myColor.text,
-                boxShadow: "0 0 0 2px white, 0 0 0 3px " + myColor.bg,
-              }}
-            >
-              {displayName.slice(0, 1).toUpperCase()}
-            </button>
-          )}
+            <div className="relative" ref={avatarMenuRef}>
+              <button
+                onClick={() => setShowAvatarMenu((v) => !v)}
+                title={displayName}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold select-none hover:scale-105 transition-transform"
+                style={{
+                  backgroundColor: myColor.bg,
+                  color: myColor.text,
+                  boxShadow: "0 0 0 2px white, 0 0 0 3px " + myColor.bg,
+                }}
+              >
+                {displayName.slice(0, 1).toUpperCase()}
+              </button>
 
-          <span className="text-sm text-[#6b7280]">{displayName}</span>
-          <SignOutButton />
+              {showAvatarMenu && (
+                <div className="absolute top-full right-0 mt-2 w-52 bg-white border border-[#e5e7eb] rounded-lg shadow-lg py-1 z-50">
+                  <div className="px-3 py-2.5 border-b border-[#e5e7eb]">
+                    <p className="text-sm font-medium text-[#111827] truncate">{displayName}</p>
+                    <p className="text-xs text-[#6b7280] truncate">{userEmail}</p>
+                  </div>
+                  <button
+                    onClick={() => { setShowAvatarMenu(false); setShowProfileModal(true); }}
+                    className="w-full text-left px-3 py-2 text-sm text-[#374151] hover:bg-[#f3f4f6] transition-colors"
+                  >
+                    Profil bearbeiten
+                  </button>
+                  <button
+                    onClick={() => signOut({ callbackUrl: "/login" })}
+                    className="w-full text-left px-3 py-2 text-sm text-[#374151] hover:bg-[#f3f4f6] transition-colors"
+                  >
+                    Abmelden
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </header>
 

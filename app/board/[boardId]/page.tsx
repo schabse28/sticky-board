@@ -31,6 +31,7 @@ export default async function BoardPage({
       boardId={boardId}
       boardName={board.name}
       username={session.user.name ?? "Unbekannt"}
+      userEmail={session.user.email ?? ""}
       userId={session.user.id}
       initialUserColor={userColor}
       isAdmin={session.user.role === "admin"}
