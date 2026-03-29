@@ -318,7 +318,7 @@ function BoardCard({
     <div
       onClick={() => router.push(`/board/${board.id}`)}
       className="group bg-white rounded-lg border border-[#e5e7eb] p-6 cursor-pointer hover:border-[#d1d5db] transition-all duration-150 ease-out"
-      style={{ boxShadow: "none" }}
+      style={{ boxShadow: "none", minHeight: 100 }}
       onMouseEnter={(e) => {
         (e.currentTarget as HTMLDivElement).style.boxShadow = "0 2px 8px rgba(0,0,0,0.08)";
         (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)";
@@ -357,7 +357,7 @@ function BoardCard({
         {board.noteCount > 0 ? (
           <span>{board.noteCount} Notes</span>
         ) : (
-          <span className="text-xs text-[#d1d5db] italic">Noch keine Notes</span>
+          <span className="text-xs text-[#d1d5db] italic whitespace-nowrap">Leer</span>
         )}
         <span className="text-[#e5e7eb]">·</span>
         <span>Erstellt {formatDate(board.createdAt)}</span>

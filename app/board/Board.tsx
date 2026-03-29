@@ -992,15 +992,16 @@ export default function Board({
 
         {/* Logo + Breadcrumb – links */}
         <div className="flex items-center gap-2.5 min-w-0">
-          <Link
-            href="/boards"
-            className="flex items-center gap-2.5 group"
-            title="Alle Boards"
-          >
-            <div className="w-7 h-7 rounded-md bg-[#111827] flex items-center justify-center flex-shrink-0">
+          <Link href="/boards" title="Alle Boards" className="flex-shrink-0">
+            <div className="w-7 h-7 rounded-md bg-[#111827] flex items-center justify-center">
               <span className="text-white text-[11px] font-semibold">SB</span>
             </div>
-            <span className="text-[15px] font-medium text-[#111827]">Sticky Board</span>
+          </Link>
+          <Link
+            href="/boards"
+            className="text-sm text-[#9ca3af] hover:text-[#6b7280] transition-colors"
+          >
+            Sticky Board
           </Link>
           <span className="text-[#d1d5db] text-sm">/</span>
           <span className="text-sm font-medium text-[#111827] truncate max-w-[180px]">
@@ -1047,7 +1048,7 @@ export default function Board({
         </div>
 
         {/* Aktionen – rechts */}
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={handleUndo}
             disabled={undoCount === 0}
@@ -1058,8 +1059,10 @@ export default function Board({
             {undoCount > 0 && <span className="tabular-nums text-xs">{undoCount}</span>}
           </button>
 
+          <div className="w-px h-5 bg-[#e5e7eb]" />
+
           {/* Shape-Tools */}
-          <div className="flex items-center gap-0.5 border-l border-[#e5e7eb] pl-3">
+          <div className="flex items-center gap-0.5">
             {([
               { tool: "rect" as const, icon: "□", title: "Rechteck" },
               { tool: "circle" as const, icon: "○", title: "Kreis" },
@@ -1072,16 +1075,19 @@ export default function Board({
                   setSelectedShapeId(null);
                 }}
                 title={title}
-                className={`w-8 h-8 flex items-center justify-center rounded-md text-sm transition-colors ${
+                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
                   activeTool === tool
-                    ? "bg-[#111827] text-white"
+                    ? "bg-[#f3f4f6] text-[#111827]"
                     : "text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6]"
                 }`}
+                style={{ fontSize: 18 }}
               >
                 {icon}
               </button>
             ))}
           </div>
+
+          <div className="w-px h-5 bg-[#e5e7eb]" />
 
           <button
             onClick={() => { setActiveTool(null); handleCreate(); }}
