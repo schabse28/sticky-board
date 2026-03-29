@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getAllBoards, getNotesByBoard, deleteNote, publishBoardEvent } from "@/lib/redis";
+import { getAllBoards, getNotesByBoard, getShapesByBoard, deleteNote, deleteShape, publishBoardEvent } from "@/lib/redis";
 
 async function assertAdmin() {
   const session = await getServerSession(authOptions);
@@ -40,18 +40,31 @@ export async function DELETE(request: Request) {
   const boardId = searchParams.get("boardId") ?? "main";
 
   try {
-    const notes = await getNotesByBoard(boardId);
-    await Promise.all(
-      notes.map(async (note) => {
+    const [notes, shapes] = await Promise.all([
+      getNotesByBoard(boardId),
+      getShapesByBoard(boardId),
+    ]);
+
+    await Promise.all([
+      ...notes.map(async (note) => {
         await deleteNote(note.id);
         await publishBoardEvent(boardId, {
           type: "note:deleted",
           noteId: note.id,
           byUserId: session.user.id,
         });
-      })
-    );
-    return NextResponse.json({ success: true, deleted: notes.length });
+      }),
+      ...shapes.map(async (shape) => {
+        await deleteShape(shape.id);
+        await publishBoardEvent(boardId, {
+          type: "shape:deleted",
+          shapeId: shape.id,
+          byUserId: session.user.id,
+        });
+      }),
+    ]);
+
+    return NextResponse.json({ success: true, deletedNotes: notes.length, deletedShapes: shapes.length });
   } catch (error) {
     console.error("[DELETE /api/admin/notes]", error);
     return NextResponse.json({ error: "Fehler beim Leeren des Boards" }, { status: 500 });
