@@ -112,6 +112,8 @@ export default function BoardsOverview({
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
+  const avatarColor = SWATCH[userColor] ?? { bg: "#e5e7eb", text: "#6b7280" };
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#fafafa]">
 
@@ -126,51 +128,44 @@ export default function BoardsOverview({
 
         <div className="flex-1" />
 
-        <div className="flex items-center gap-4">
-          {isAdmin && (
-            <Link
-              href="/admin"
-              className="text-sm text-[#6b7280] hover:text-[#111827] transition-colors"
-            >
-              Admin
-            </Link>
-          )}
+        {/* Avatar + Dropdown */}
+        <div className="relative" ref={avatarMenuRef}>
+          <button
+            onClick={() => setShowAvatarMenu((v) => !v)}
+            title={username}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold select-none hover:scale-105 transition-transform"
+            style={{
+              backgroundColor: avatarColor.bg,
+              color: avatarColor.text,
+              boxShadow: "0 0 0 2px white, 0 0 0 3px " + avatarColor.bg,
+            }}
+          >
+            {username.slice(0, 1).toUpperCase()}
+          </button>
 
-          {/* Avatar + Dropdown */}
-          <div className="relative" ref={avatarMenuRef}>
-            {(() => {
-              const c = SWATCH[userColor] ?? { bg: "#e5e7eb", text: "#6b7280" };
-              return (
-                <button
-                  onClick={() => setShowAvatarMenu((v) => !v)}
-                  title={username}
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold select-none hover:scale-105 transition-transform"
-                  style={{
-                    backgroundColor: c.bg,
-                    color: c.text,
-                    boxShadow: "0 0 0 2px white, 0 0 0 3px " + c.bg,
-                  }}
-                >
-                  {username.slice(0, 1).toUpperCase()}
-                </button>
-              );
-            })()}
-
-            {showAvatarMenu && (
-              <div className="absolute top-full right-0 mt-2 w-52 bg-white border border-[#e5e7eb] rounded-lg shadow-lg py-1 z-50">
-                <div className="px-3 py-2.5 border-b border-[#e5e7eb]">
-                  <p className="text-sm font-medium text-[#111827] truncate">{username}</p>
-                  <p className="text-xs text-[#6b7280] truncate">{userEmail}</p>
-                </div>
-                <button
-                  onClick={() => signOut({ callbackUrl: "/login" })}
-                  className="w-full text-left px-3 py-2 text-sm text-[#374151] hover:bg-[#f3f4f6] transition-colors"
-                >
-                  Abmelden
-                </button>
+          {showAvatarMenu && (
+            <div className="absolute top-full right-0 mt-2 w-52 bg-white border border-[#e5e7eb] rounded-lg shadow-lg py-1 z-50">
+              <div className="px-3 py-2.5 border-b border-[#e5e7eb]">
+                <p className="text-sm font-medium text-[#111827] truncate">{username}</p>
+                <p className="text-xs text-[#6b7280] truncate">{userEmail}</p>
               </div>
-            )}
-          </div>
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  onClick={() => setShowAvatarMenu(false)}
+                  className="block w-full text-left px-3 py-2 text-sm text-[#374151] hover:bg-[#f3f4f6] transition-colors"
+                >
+                  Admin
+                </Link>
+              )}
+              <button
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                className="w-full text-left px-3 py-2 text-sm text-[#374151] hover:bg-[#f3f4f6] transition-colors"
+              >
+                Abmelden
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -178,9 +173,14 @@ export default function BoardsOverview({
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-8 pt-12 pb-8">
 
-          {/* Titel-Bereich */}
-          <div className="flex items-center justify-between mb-2">
-            <h1 className="text-2xl font-semibold text-[#111827]">Meine Boards</h1>
+          {/* Titel + Button in einer Zeile */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-2xl font-semibold text-[#111827]">Meine Boards</h1>
+              <p className="text-sm text-[#6b7280] mt-1">
+                {boards.length} {boards.length === 1 ? "Board" : "Boards"}
+              </p>
+            </div>
             <button
               onClick={openModal}
               className="bg-[#111827] hover:bg-[#1f2937] text-white text-sm font-medium px-4 py-2 rounded-md transition-colors"
@@ -188,9 +188,6 @@ export default function BoardsOverview({
               Neues Board
             </button>
           </div>
-          <p className="text-sm text-[#6b7280] mb-8">
-            {boards.length} {boards.length === 1 ? "Board" : "Boards"}
-          </p>
 
           {/* Board-Grid */}
           {boards.length === 0 ? (
@@ -320,11 +317,20 @@ function BoardCard({
   return (
     <div
       onClick={() => router.push(`/board/${board.id}`)}
-      className="group bg-white rounded-lg border border-[#e5e7eb] p-5 cursor-pointer hover:border-[#d1d5db] hover:shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-all"
+      className="group bg-white rounded-lg border border-[#e5e7eb] p-6 cursor-pointer hover:border-[#d1d5db] transition-all duration-150 ease-out"
+      style={{ boxShadow: "none" }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLDivElement).style.boxShadow = "0 2px 8px rgba(0,0,0,0.08)";
+        (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
+        (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";
+      }}
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
-        <h2 className="text-base font-medium text-[#111827] leading-snug truncate pr-2">
+        <h2 className="text-base font-semibold text-[#111827] leading-snug truncate pr-2">
           {board.name}
         </h2>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -347,26 +353,37 @@ function BoardCard({
       </div>
 
       {/* Stats */}
-      <div className="flex items-center gap-3 text-sm text-[#9ca3af]">
-        <span>{board.noteCount} Notes</span>
-        <span>·</span>
+      <div className="flex items-center gap-2 text-sm text-[#9ca3af]">
+        {board.noteCount > 0 ? (
+          <span>{board.noteCount} Notes</span>
+        ) : (
+          <span className="text-xs text-[#d1d5db] italic">Noch keine Notes</span>
+        )}
+        <span className="text-[#e5e7eb]">·</span>
         <span>Erstellt {formatDate(board.createdAt)}</span>
       </div>
 
-      {/* Online-Indikator */}
-      {board.onlineCount > 0 && (
-        <div className="flex items-center gap-1.5 mt-3">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          <span className="text-xs text-[#6b7280]">{board.onlineCount} online</span>
+      {/* Online + TTL + Pfeil */}
+      <div className="flex items-center justify-between mt-3">
+        <div className="flex items-center gap-3">
+          {board.onlineCount > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span className="text-xs text-[#6b7280]">{board.onlineCount} online</span>
+            </div>
+          )}
+          {board.ttlSeconds && (
+            <span className="text-xs text-amber-600">
+              Läuft ab in {formatTTL(board.ttlSeconds)}
+            </span>
+          )}
         </div>
-      )}
 
-      {/* TTL */}
-      {board.ttlSeconds && (
-        <p className="text-xs text-amber-600 mt-3">
-          Läuft ab in {formatTTL(board.ttlSeconds)}
-        </p>
-      )}
+        {/* Pfeil-Icon bei Hover */}
+        <span className="text-[#d1d5db] opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-sm">
+          →
+        </span>
+      </div>
     </div>
   );
 }

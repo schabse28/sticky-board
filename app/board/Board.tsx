@@ -1048,15 +1048,6 @@ export default function Board({
 
         {/* Aktionen – rechts */}
         <div className="flex items-center gap-3 flex-shrink-0">
-          {isAdmin && (
-            <Link
-              href="/admin"
-              className="text-sm text-[#6b7280] hover:text-[#111827] transition-colors"
-            >
-              Admin
-            </Link>
-          )}
-
           <button
             onClick={handleUndo}
             disabled={undoCount === 0}
@@ -1128,6 +1119,15 @@ export default function Board({
                   >
                     Profil bearbeiten
                   </button>
+                  {isAdmin && (
+                    <Link
+                      href="/admin"
+                      onClick={() => setShowAvatarMenu(false)}
+                      className="block w-full text-left px-3 py-2 text-sm text-[#374151] hover:bg-[#f3f4f6] transition-colors"
+                    >
+                      Admin
+                    </Link>
+                  )}
                   <button
                     onClick={() => signOut({ callbackUrl: "/login" })}
                     className="w-full text-left px-3 py-2 text-sm text-[#374151] hover:bg-[#f3f4f6] transition-colors"
