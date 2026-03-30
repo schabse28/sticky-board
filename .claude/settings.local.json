@@ -24,7 +24,14 @@
       "Bash(docker-compose ps:*)",
       "Bash(gh pr:*)",
       "Bash(grep -v \"ExperimentalWarning\\\\|CommonJS module\\\\|require\\(\\)\\\\|Use \\\\`node\")",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(git stash:*)",
+      "Bash(source ~/.nvm/nvm.sh)",
+      "Bash(nvm install:*)",
+      "Bash(nvm use:*)",
+      "Bash(lsof -i :3000 -sTCP:LISTEN)",
+      "Bash(docker ps:*)",
+      "Bash(lsof -i :3000 -sTCP:LISTEN -t)"
     ]
   }
 }
