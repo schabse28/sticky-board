@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { signOut } from "next-auth/react";
 import type { BoardPublic, BoardMeta } from "@/types";
 
@@ -135,9 +136,13 @@ export default function BoardsOverview({
       {/* Header */}
       <header className="flex-shrink-0 h-[52px] bg-white flex items-center px-5 border-b border-[#e5e7eb]">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 bg-[#111827] rounded-md flex items-center justify-center">
-            <span className="text-white text-[11px] font-semibold">SB</span>
-          </div>
+          <Image
+            src="/logo.svg"
+            alt="Sticky Board"
+            width={36}
+            height={36}
+            className="w-9 h-9 rounded-md"
+          />
           <span className="text-[15px] font-medium text-[#111827]">Sticky Board</span>
         </div>
 

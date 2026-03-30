@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import type { BoardPublic, UserPublic } from "@/types";
 
 function formatTTL(seconds: number): string {
@@ -130,9 +131,13 @@ export default function AdminDashboard({
       {/* Header */}
       <header className="flex-shrink-0 h-11 bg-slate-900 flex items-center px-4 gap-4 border-b border-slate-800">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-6 h-6 rounded-md bg-white/10 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-[10px] font-bold tracking-tight">SB</span>
-          </div>
+          <Image
+            src="/logo.svg"
+            alt="Sticky Board"
+            width={32}
+            height={32}
+            className="w-8 h-8 rounded-md flex-shrink-0"
+          />
           <span className="text-white font-semibold text-sm tracking-tight whitespace-nowrap">
             Sticky Board
           </span>

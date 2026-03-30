@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { signOut } from "next-auth/react";
 import type { Note, Shape, BoardEvent, OnlineUser } from "@/types";
 import { NOTE_DEFAULT_W, NOTE_DEFAULT_H, NOTE_MIN_W, NOTE_MIN_H } from "@/types";
@@ -1053,10 +1054,21 @@ export default function Board({
 
         {/* Logo + Breadcrumb – links */}
         <div className="flex items-center gap-2.5 min-w-0">
+          <Link
+            href="/boards"
+            className="flex-shrink-0 inline-flex items-center gap-1 text-sm text-[#6b7280] hover:text-[#111827] px-2 py-1 rounded-md hover:bg-[#f3f4f6] transition-colors"
+          >
+            <span aria-hidden="true">←</span>
+            <span className="whitespace-nowrap">Zur Übersicht</span>
+          </Link>
           <Link href="/boards" title="Alle Boards" className="flex-shrink-0">
-            <div className="w-7 h-7 rounded-md bg-[#111827] flex items-center justify-center">
-              <span className="text-white text-[11px] font-semibold">SB</span>
-            </div>
+            <Image
+              src="/logo.svg"
+              alt="Sticky Board"
+              width={36}
+              height={36}
+              className="w-9 h-9 rounded-md"
+            />
           </Link>
           <Link
             href="/boards"

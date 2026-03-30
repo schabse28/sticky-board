@@ -4,6 +4,7 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -63,9 +64,13 @@ export default function RegisterPage() {
 
       {/* Logo */}
       <div className="mb-10 flex flex-col items-center">
-        <div className="w-10 h-10 bg-[#111827] rounded-lg flex items-center justify-center mb-5">
-          <span className="text-white text-sm font-semibold">SB</span>
-        </div>
+        <Image
+          src="/logo.svg"
+          alt="Sticky Board"
+          width={40}
+          height={40}
+          className="w-10 h-10 rounded-lg mb-5"
+        />
         <h1 className="text-2xl font-semibold text-[#111827]">Konto erstellen</h1>
         <p className="text-sm text-[#6b7280] mt-1.5">Erstelle dein Konto</p>
       </div>
