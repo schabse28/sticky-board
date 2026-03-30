@@ -4,6 +4,9 @@ import { redirect, notFound } from "next/navigation";
 import { getNotesByBoard, getShapesByBoard, getUserColor, getBoard, getBoardTTL } from "@/lib/redis";
 import Board from "../Board";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function BoardPage({
   params,
 }: {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import type { BoardPublic, BoardMeta } from "@/types";
@@ -47,6 +47,7 @@ export default function BoardsOverview({
   isAdmin,
 }: BoardsOverviewProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [boards, setBoards] = useState<BoardPublic[]>(initialBoards);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newBoardName, setNewBoardName] = useState("");
@@ -56,6 +57,20 @@ export default function BoardsOverview({
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
+
+  async function fetchBoards() {
+    try {
+      const res = await fetch("/api/boards");
+      if (res.ok) setBoards(await res.json());
+    } catch {
+      // silent – stale data is better than an error flash
+    }
+  }
+
+  // Reload boards when navigating back to /boards
+  useEffect(() => {
+    fetchBoards();
+  }, [pathname]);
 
   useEffect(() => {
     if (!showAvatarMenu) return;

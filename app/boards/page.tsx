@@ -4,6 +4,9 @@ import { redirect } from "next/navigation";
 import { getAllBoards, getUserColor } from "@/lib/redis";
 import BoardsOverview from "./BoardsOverview";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function BoardsPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/login");

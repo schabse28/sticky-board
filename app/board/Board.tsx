@@ -147,6 +147,7 @@ export default function Board({
   const [isPersisting, setIsPersisting] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
+  const [sseReconnectCount, setSseReconnectCount] = useState(0);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
 
   // Shape-State
@@ -156,6 +157,28 @@ export default function Board({
   const [activeTool, setActiveTool] = useState<ShapeTool | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
   const [drawingShape, setDrawingShape] = useState<DrawingState | null>(null);
+
+  // Frische Daten laden wenn boardId sich ändert (Board-Wechsel via Client-Navigation)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadBoard() {
+      const [notesRes, shapesRes] = await Promise.all([
+        fetch(`/api/boards/${boardId}/notes`),
+        fetch(`/api/boards/${boardId}/shapes`),
+      ]);
+      if (cancelled) return;
+      if (notesRes.ok) {
+        const data: Note[] = await notesRes.json();
+        setNotes(data.map((n, i) => ({ ...n, zIndex: i + 1 })));
+      }
+      if (shapesRes.ok) {
+        const data: Shape[] = await shapesRes.json();
+        setShapes(data.map((s, i) => ({ ...s, zIndex: i + 1 })));
+      }
+    }
+    loadBoard();
+    return () => { cancelled = true; };
+  }, [boardId]);
 
   const dragRef = useRef<DragState | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
@@ -180,6 +203,15 @@ export default function Board({
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
   useEffect(() => { shapesRef.current = shapes; }, [shapes]);
 
+  // Wenn boardId sich ändert (Client-seitige Navigation ohne Remount): sofort
+  // initialNotes/initialShapes aus den Server-Props übernehmen und editingId
+  // zurücksetzen, damit kein veralteter State angezeigt wird.
+  useEffect(() => {
+    setNotes(initialNotes.map((n, i) => ({ ...n, zIndex: i + 1 })));
+    setShapes(initialShapes.map((s, i) => ({ ...s, zIndex: i + 1 })));
+    setEditingId(null);
+  }, [boardId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Cursor-Cleanup: entfernt Cursor die länger als 3,5s nicht aktualisiert wurden
   // (spiegelt die Redis TTL von 3s wider, falls kein cursor_hidden Event kommt)
   useEffect(() => {
@@ -200,6 +232,7 @@ export default function Board({
   useEffect(() => {
     if (!currentUserColor) return;
 
+    let closed = false;
     const es = new EventSource(`/api/events?boardId=${boardId}`);
 
     es.onmessage = (e: MessageEvent) => {
@@ -344,10 +377,38 @@ export default function Board({
       }
     };
 
-    es.onerror = () => {};
+    es.onerror = () => {
+      if (closed) return;
+      es.close();
+      // Re-fetch current state to recover events missed during disconnection,
+      // then trigger a new SSE connection via sseReconnectCount.
+      setTimeout(async () => {
+        if (closed) return;
+        try {
+          const [notesRes, shapesRes] = await Promise.all([
+            fetch(`/api/boards/${boardId}/notes`),
+            fetch(`/api/boards/${boardId}/shapes`),
+          ]);
+          if (notesRes.ok) {
+            const freshNotes: Note[] = await notesRes.json();
+            setNotes(freshNotes.map((n, i) => ({ ...n, zIndex: i + 1 })));
+          }
+          if (shapesRes.ok) {
+            const freshShapes: Shape[] = await shapesRes.json();
+            setShapes(freshShapes.map((s, i) => ({ ...s, zIndex: i + 1 })));
+          }
+        } catch {
+          // ignore – will retry on next reconnect
+        }
+        setSseReconnectCount((c) => c + 1);
+      }, 2000);
+    };
 
-    return () => es.close();
-  }, [currentUserColor, boardId]);
+    return () => {
+      closed = true;
+      es.close();
+    };
+  }, [currentUserColor, boardId, sseReconnectCount]);
 
   // ── Drag & Drop + Resize + Shape-Interaktionen ─────────────────────────
   // Alle laufen über globale Mouse-Events, damit Ziehen außerhalb der
