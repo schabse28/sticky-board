@@ -149,6 +149,7 @@ export default function Board({
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const [sseReconnectCount, setSseReconnectCount] = useState(0);
+  const [linkCopied, setLinkCopied] = useState(false);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
 
   // Shape-State
@@ -409,6 +410,8 @@ export default function Board({
       closed = true;
       es.close();
     };
+  // Bewusst: userId/boardId/handleDeleteShape sind stabile Werte — Hinzufügen würde SSE-Verbindungen bei jedem Re-Render neu aufbauen
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserColor, boardId, sseReconnectCount]);
 
   // ── Drag & Drop + Resize + Shape-Interaktionen ─────────────────────────
@@ -629,6 +632,8 @@ export default function Board({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
+  // Bewusst: userId/boardId/handleDeleteShape sind stabile Werte — Hinzufügen würde SSE-Verbindungen bei jedem Re-Render neu aufbauen
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDragStart = useCallback((e: React.MouseEvent, note: BoardNote) => {
@@ -1008,6 +1013,8 @@ export default function Board({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  // Bewusst: userId/boardId/handleDeleteShape sind stabile Werte — Hinzufügen würde SSE-Verbindungen bei jedem Re-Render neu aufbauen
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedShapeId]);
 
   // ── Temporäres Board: dauerhaft machen ───────────────────────────────────
@@ -1081,6 +1088,21 @@ export default function Board({
             {boardName}
           </span>
         </div>
+
+        {/* Link kopieren */}
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(window.location.href).then(() => {
+              setLinkCopied(true);
+              setTimeout(() => setLinkCopied(false), 2000);
+            });
+          }}
+          title="Board-Link kopieren"
+          className="ml-3 flex items-center gap-1.5 text-sm text-[#6b7280] hover:text-[#111827] px-2 py-1 rounded-md hover:bg-[#f3f4f6] transition-colors flex-shrink-0"
+        >
+          
+          <span className="whitespace-nowrap">{linkCopied ? "Einladungslink kopiert!" : "Personen einladen"}</span>
+        </button>
 
         {/* Online-Nutzer – Mitte */}
         <div className="flex-1 flex items-center justify-center">

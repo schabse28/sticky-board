@@ -56,6 +56,7 @@ export default function BoardsOverview({
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const inputRef = useRef<HTMLInputElement>(null);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
 
@@ -209,6 +210,34 @@ export default function BoardsOverview({
             </button>
           </div>
 
+          {/* Sortierung */}
+          {boards.length > 1 && (
+            <div className="flex items-center gap-1 mb-4">
+              <div className="flex bg-[#f3f4f6] rounded-md p-0.5">
+                <button
+                  onClick={() => setSortOrder("newest")}
+                  className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+                    sortOrder === "newest"
+                      ? "bg-white text-[#111827] font-medium shadow-sm"
+                      : "text-[#6b7280] hover:text-[#111827]"
+                  }`}
+                >
+                  Neueste zuerst
+                </button>
+                <button
+                  onClick={() => setSortOrder("oldest")}
+                  className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+                    sortOrder === "oldest"
+                      ? "bg-white text-[#111827] font-medium shadow-sm"
+                      : "text-[#6b7280] hover:text-[#111827]"
+                  }`}
+                >
+                  Älteste zuerst
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Board-Grid */}
           {boards.length === 0 ? (
             <div className="text-center py-20">
@@ -219,7 +248,10 @@ export default function BoardsOverview({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {boards.map((board) => (
+              {[...boards].sort((a, b) => {
+                const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+                return sortOrder === "newest" ? -diff : diff;
+              }).map((board) => (
                 <BoardCard
                   key={board.id}
                   board={board}
