@@ -82,6 +82,10 @@ npm run dev
 Die Anwendung ist unter [http://localhost:3000](http://localhost:3000) erreichbar.
 Beim ersten Aufruf zur `/register`-Seite navigieren, um einen Account zu erstellen.
 
+## Erster Start
+
+Der erste registrierte Nutzer erhält automatisch Administrator-Rechte. Das Admin-Dashboard ist unter `/admin` erreichbar.
+
 ## Verfügbare Skripte
 
 ```bash
