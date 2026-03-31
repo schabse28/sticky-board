@@ -70,6 +70,23 @@ validateEnvironment();
 // ---------------------------------------------------------------------------
 // Verbindung
 // ---------------------------------------------------------------------------
+//
+// Warum Singleton? – Verbindungs-Overhead vermeiden
+// --------------------------------------------------
+// Eine SQL-Datenbank erwartet einen Connection-Pool (pg-pool, mysql2-pool).
+// Redis-Verbindungen sind leichtgewichtiger, aber nicht kostenlos: Jede neue
+// ioredis-Instanz öffnet einen TCP-Socket und führt einen AUTH/HELLO-Handshake
+// durch. In Next.js wird bei jedem Hot-Reload (Entwicklung) und bei jedem
+// Serverless-Cold-Start (Produktion) das Modul neu evaluiert – ohne globales
+// Caching würden innerhalb von Minuten hunderte offener Sockets entstehen.
+//
+// Die `global._redisClient`-Variable überlebt Module-Reloads, weil sie am
+// Node.js-Prozess hängt, nicht am Modul-Cache. Ein einziger persistenter
+// Socket reicht für alle parallelen Anfragen aus (Redis multiplext intern).
+//
+// Ausnahme: SSE-Subscriber-Verbindungen dürfen NICHT diesen Singleton nutzen –
+// ioredis sperrt eine Verbindung nach dem ersten SUBSCRIBE-Aufruf für andere
+// Befehle. Für Subscribe wird immer `new Redis(...)` pro Handler erstellt.
 
 // Singleton-Pattern: In Next.js (Hot-Reload / Serverless) wird bei jedem
 // Modul-Reload eine neue Verbindung geöffnet, wenn wir nicht im globalen
@@ -124,6 +141,23 @@ const keys = {
 // ---------------------------------------------------------------------------
 // Notes
 // ---------------------------------------------------------------------------
+//
+// Warum Redis Hashes statt SQL-Tabellen?
+// ---------------------------------------
+// Eine SQL-Tabelle hat ein fixes Schema: jede neue Spalte (z.B. `fontSize`,
+// `rotation`, `locked`) erfordert ALTER TABLE – in Produktion potenziell
+// eine teure Tabellensperre oder einen Online-DDL-Prozess. Redis Hashes
+// speichern beliebige Key-Value-Paare ohne Schema-Definition. Ein neues Feld
+// wie `rotation` kann sofort per HSET geschrieben werden, ohne dass bestehende
+// Notes angepasst werden müssen – fehlende Felder ergeben schlicht `undefined`.
+//
+// Weitere Vorteile gegenüber SQL-Zeilen:
+//   • Partial Updates: HSET aktualisiert nur die geänderten Felder (posX/posY
+//     beim Drag), ohne die gesamte Zeile zu lesen und zurückzuschreiben.
+//   • Kein JOIN: Zugehörigkeit zu einem Board ist im Hash-Feld `boardId`
+//     gespeichert und im Board-Set referenziert – kein Fremdschlüssel-Join nötig.
+//   • Kein NULL-Handling: Optionale Felder (createdByName) werden einfach
+//     weggelassen statt als NULL gespeichert.
 
 /**
  * Erstellt eine neue Note und verknüpft sie mit dem Board.
@@ -132,8 +166,14 @@ const keys = {
  *   - Redis Hash  "note:{id}"              → alle Felder der Note
  *   - Redis Set   "board:{boardId}:notes"  → Menge aller Note-IDs des Boards
  *
- * Das Set ermöglicht O(1)-Prüfung der Zugehörigkeit und einfaches Auflisten
- * aller Notes eines Boards, ohne einen sekundären Index pflegen zu müssen.
+ * Warum Redis Sets für Board-Membership?
+ * ---------------------------------------
+ * In SQL würde man "SELECT id FROM notes WHERE boardId = ?" verwenden –
+ * ohne Index ein Full Table Scan (O(N)), mit Index O(log N). Redis Sets
+ * liefern SMEMBERS (alle IDs des Boards) in O(N) ohne Index-Verwaltung,
+ * und SISMEMBER (gehört Note X zu Board Y?) in O(1) – schneller als jeder
+ * SQL-Index-Lookup. Das Set ist gleichzeitig der Index: kein separates
+ * `CREATE INDEX`, keine Pflege bei Updates, keine Fragmentierung.
  */
 export async function createNote(boardId: string, noteData: NoteData): Promise<Note> {
   const id = uuidv4();
@@ -544,7 +584,7 @@ export async function migrateUsersToEmailAuth(): Promise<void> {
   await writePipeline.exec();
   await redis.set(migrationKey, "1");
 
-  console.log("[sticky-board] Migration v2: Nutzer auf E-Mail-Authentifizierung migriert");
+  console.warn("[sticky-board] Migration v2: Nutzer auf E-Mail-Authentifizierung migriert");
 }
 
 // ---------------------------------------------------------------------------
@@ -661,12 +701,25 @@ export async function getOnlineUsers(): Promise<OnlineUser[]> {
 // ---------------------------------------------------------------------------
 // Pub/Sub für Echtzeit-Synchronisierung
 // ---------------------------------------------------------------------------
-// Redis Pub/Sub ist der einfachste Weg, Nachrichten zwischen Server-Prozessen
-// (SSE-Handler) zu verteilen. Kein Polling, keine Websocket-Bibliothek nötig.
+//
+// Warum Redis Pub/Sub statt SQL-Polling?
+// ----------------------------------------
+// Der naive Echtzeit-Ansatz mit SQL wäre Short-Polling: jeder Client fragt
+// alle N Sekunden "SELECT * FROM notes WHERE updatedAt > ?". Das erzeugt
+// konstante Datenbank-Last auch ohne Änderungen – bei 100 gleichzeitigen
+// Nutzern und 2-Sekunden-Intervall: 50 Queries/Sekunde im Leerlauf.
+//
+// Redis Pub/Sub arbeitet push-basiert: Änderungen werden sofort per PUBLISH
+// an alle aktiven Subscriber gesendet. Im Leerlauf entstehen null Queries.
+// Die Latenz ist sub-millisecond statt N Sekunden. Kein "jetzt gerade
+// passiert etwas"-Zustand muss in der DB gespeichert werden.
 //
 // Kanalarchitektur:
 //   board:{boardId}:events  → boardspezifische Note-Events (create/move/edit/resize/delete)
 //   presence:events          → globale Präsenz-Updates (wer ist online)
+//
+// Jede SSE-Verbindung bekommt eine eigene ioredis-Instanz im Subscribe-Modus
+// (der Singleton kann nach SUBSCRIBE keine anderen Befehle mehr ausführen).
 
 /** Board-spezifischer Kanal für Note-Events. */
 export const boardChannel = (boardId: string) => `board:${boardId}:events`;
@@ -713,6 +766,21 @@ export async function ensureMainBoard(): Promise<void> {
   );
 }
 
+// Warum Redis TTL statt SQL für temporäre Boards?
+// -------------------------------------------------
+// In SQL müsste man eine `expiresAt`-Spalte pflegen und einen Hintergrund-Job
+// (Cron, pg_cron, Scheduled Lambda …) schreiben, der regelmäßig
+// "DELETE FROM boards WHERE expiresAt < NOW()" ausführt – inklusive
+// kaskadierten Deletes auf Notes, Shapes, Online-Einträge. Das bedeutet:
+//   • Cron-Job-Infrastruktur aufsetzen und überwachen
+//   • Transaktionen für atomares Löschen verknüpfter Rows
+//   • Risiko: Cron fällt aus → Datenmüll häuft sich an
+//
+// Redis erledigt das nativ mit EXPIRE: der Key läuft automatisch ab,
+// kein externer Job nötig. `PERSIST` macht den Key dauerhaft – ein einziger
+// Befehl ersetzt ALTER TABLE + Migrations + Cron-Änderung. Die TTL-Vererbung
+// auf Notes (boardTTL > 0 → pipeline.expire) stellt sicher, dass auch
+// Kindressourcen ablaufen, ohne eine rekursive DELETE-Kaskade zu brauchen.
 const BOARD_TTL_SECONDS = 86400; // 24 Stunden
 
 /** Erstellt ein neues Board und trägt es in boards:all ein. */
