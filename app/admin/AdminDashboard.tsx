@@ -111,17 +111,6 @@ export default function AdminDashboard({
     }
   }
 
-  async function handleToggleRole(user: UserPublic) {
-    const newRole = user.role === "admin" ? "user" : "admin";
-    const res = await fetch(`/api/admin/users/${user.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: newRole }),
-    });
-    if (res.ok) {
-      setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, role: newRole } : u));
-    }
-  }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -355,13 +344,6 @@ export default function AdminDashboard({
                           <td className="px-4 py-2.5">
                             {!isSelf && (
                               <div className="flex items-center gap-2 justify-end">
-                                <button
-                                  onClick={() => handleToggleRole(user)}
-                                  className="text-xs text-slate-400 hover:text-slate-700 transition-colors"
-                                  title={user.role === "admin" ? "Zum Nutzer degradieren" : "Zum Admin befördern"}
-                                >
-                                  {user.role === "admin" ? "→ Nutzer" : "→ Admin"}
-                                </button>
                                 <button
                                   onClick={() => handleDeleteUser(user.id)}
                                   disabled={deletingUserIds.has(user.id)}
